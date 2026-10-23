@@ -202,7 +202,9 @@ The complete replication instance command, with the sizing table and the securit
 
 ### DMS Endpoint SSL Configuration
 
-**Before creating any DMS endpoint, resolve the correct Aurora secret.** Do NOT scan Secrets Manager for a likely secret — get it directly from the cluster:
+**The cluster-managed secret cannot be used for a DMS endpoint.** The secret that Aurora manages for the cluster (`MasterUserSecret`, named `rds!cluster-...`) holds only a username and a password. It has no host or port, so it cannot be passed as `SecretsManagerSecretId`, and the AWS documentation says to create a new user and secret instead. It also rotates, so a DMS-format secret whose password was copied from it goes stale after the next rotation. Prefer a dedicated migration user on the target with its own DMS-format secret (username, password, host and port). Step 1 in `02-mobilize-phase.md` builds that secret and covers the rotation caveat.
+
+**To find the admin user, read it from the cluster.** Do NOT scan Secrets Manager for a likely secret. The lookup below tells you which user and which managed secret belong to the cluster, for example when you set up the dedicated migration user or check a `password authentication failed` error:
 
 ```bash
 # Step 1: Get the cluster's own managed secret ARN and admin username
@@ -216,9 +218,7 @@ aws secretsmanager get-secret-value --secret-id <SecretArn> \
   python3 -c "import sys,json; d=json.load(sys.stdin); print('user='+d['username'])"
 ```
 
-Only proceed to create the DMS target endpoint after confirming the username matches `MasterUsername`. Using the wrong secret is a common source of `password authentication failed` errors during DMS endpoint testing.
-
-This lookup finds the admin user. It does not give you a secret that DMS can use. The cluster-managed secret (`MasterUserSecret`) has no host or port, so it cannot be passed as `SecretsManagerSecretId`. The AWS documentation says to create a new user and secret instead. Step 1 in `02-mobilize-phase.md` builds a DMS-format secret (username, password, host and port) and covers the rotation caveat.
+The username must match `MasterUsername`. Using the wrong secret is a common source of `password authentication failed` errors during DMS endpoint testing. This lookup finds the admin user only. It does not give you a secret that DMS can use: create the DMS-format secret as described above.
 
 **Secrets Manager flags**: Do NOT use `--secrets-manager-secret-id` / `--secrets-manager-access-role-arn` as top-level CLI flags — they are not supported that way. These must be passed inside `--postgre-sql-settings` as `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn`. Because the settings contain only ARNs, pass them as a JSON file with `file://` (Steps 4 and 5 of the same section).
 
