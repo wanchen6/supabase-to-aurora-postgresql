@@ -267,7 +267,7 @@ What migration approach was selected in the Assess phase?
 │           └── NO → Fall back to DMS with CDC
 ├── DMS with CDC
 │   └── Set up DMS replication instance, endpoints, and task
-│       └── Proceed to Decision 3 (plugin choice)
+│       └── Proceed to Decision 4 (plugin choice)
 └── Hybrid (native + DMS)
     ├── Tables WITH PKs and standard types → Native logical replication
     ├── Tables needing validation → DMS with CDC + validation
@@ -672,7 +672,7 @@ The target security group must allow inbound TCP 5432 from:
 
 - Application hosts (EC2, ECS, Lambda VPC)
 - Source database IP range (for native logical replication)
-- DMS replication instance subnet (if using DMS)
+- DMS replication instance security group (if using DMS; security-group-to-security-group rule, Step 3a of the DMS setup)
 
 ## Schema Migration
 

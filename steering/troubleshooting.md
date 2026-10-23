@@ -146,7 +146,7 @@ DMS task logs are available in CloudWatch Logs under the log group `dms-tasks-<r
 **Symptom**: `test-connection` returns `failed` status.
 
 **Resolution**:
-1. For source endpoints (Supabase, Heroku, etc.): verify the DMS replication instance subnet has internet access (NAT gateway) since source databases are on the public internet
+1. For source endpoints (Supabase, Heroku, etc.): verify the replication instance is publicly accessible with network type `DUAL`, sits in public subnets whose route tables send `::/0` and `0.0.0.0/0` to an internet gateway, and that its security group allows outbound traffic to the source on port 5432 (`02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)", Steps 2, 3a and 3b). A NAT gateway gives an IPv4 route only, so it does not help with an IPv6-only source
 2. For target endpoints (Aurora): verify the DMS replication instance security group can reach Aurora on port 5432
 3. Verify credentials are correct — test with psql from an EC2 instance in the same VPC
 4. Check that the DMS replication instance is in the correct VPC and subnet group
@@ -322,33 +322,7 @@ Steps for a clean reload:
 3. Ensure the DMS task table mappings include ALL cascaded tables so they are all reloaded
 4. Reload with `TargetTablePrepMode: DO_NOTHING` (since you already truncated manually), following [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run)
 
-Alternatively, disable FK checks via the parameter group, truncate individually, then re-enable:
-
-```bash
-# Disable FK triggers via parameter group
-aws rds modify-db-cluster-parameter-group \
-  --db-cluster-parameter-group-name <your-custom-param-group> \
-  --parameters "ParameterName=session_replication_role,ParameterValue=replica,ApplyMethod=immediate"
-```
-
-**Note**: `ALTER SYSTEM` is not allowed on RDS/Aurora — you must use the parameter group.
-
-Then truncate tables in reverse dependency order (children before parents):
-
-```sql
-TRUNCATE TABLE child_table;
-TRUNCATE TABLE parent_table;
-```
-
-After truncation, re-enable FK enforcement:
-
-```bash
-aws rds modify-db-cluster-parameter-group \
-  --db-cluster-parameter-group-name <your-custom-param-group> \
-  --parameters "ParameterName=session_replication_role,ParameterValue=origin,ApplyMethod=immediate"
-```
-
-This avoids the cascade but requires you to truncate tables in reverse dependency order (children before parents).
+Do not try to avoid the cascade by truncating the tables one at a time, by changing `session_replication_role` in the cluster parameter group, or by ordering children before parents. A table that other tables reference cannot be truncated without `CASCADE`, with or without the replica role. Use the steps above, then the ordered recipe in [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run).
 
 ### Reload after a failed or partial run
 
@@ -479,9 +453,10 @@ The recipe is in `supabase-migration-feature-mapping.md` → "Vercel + Aurora Co
 
 **Resolution options**:
 1. **Aurora Data API** — no VPC connectivity needed; access Aurora via HTTPS. Best for simple CRUD operations (< 45s execution time). Requires enabling Data API on the Aurora cluster.
-2. **Aurora public access** — enable public accessibility on the Aurora instance and restrict via security group to known IPs. Less secure but simplest.
-3. **Vercel Secure Compute** (Enterprise plan) — provides VPC peering from Vercel to your AWS VPC. Most secure but requires Vercel Enterprise.
-4. **AWS Amplify Hosting** — alternative to Vercel that runs inside your AWS account. SSR uses Lambda functions that can be configured with VPC access to reach private Aurora. Also supports IAM compute roles and VPC endpoints for private connectivity.
-5. **PrivateLink** — create a VPC endpoint service for Aurora and connect from Vercel via PrivateLink (requires Vercel Enterprise).
+2. **Vercel Secure Compute** (Enterprise plan) — provides VPC peering from Vercel to your AWS VPC. Most secure but requires Vercel Enterprise.
+3. **AWS Amplify Hosting** — alternative to Vercel that runs inside your AWS account. SSR uses Lambda functions that can be configured with VPC access to reach private Aurora. Also supports IAM compute roles and VPC endpoints for private connectivity.
+4. **PrivateLink** — create a VPC endpoint service for Aurora and connect from Vercel via PrivateLink (requires Vercel Enterprise).
+
+This guide does not offer public database access as an option: Aurora stays private.
 
 For the complete OIDC setup, IAM role configuration, and Aurora Data API client implementation, see `supabase-migration-feature-mapping.md` → "Vercel + Aurora Connectivity".

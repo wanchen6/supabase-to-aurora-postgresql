@@ -88,7 +88,7 @@ The Aurora security group must allow inbound TCP 5432 from:
 1. **Application host** (EC2, ECS, Lambda VPC) — for application connections
 2. **CloudShell VPC environment** — for schema migration and ad-hoc psql operations (recommended over EC2 bastion)
 3. **Supabase IP range** — for native logical replication (if using that path)
-4. **DMS replication instance subnet** — for DMS CDC (if using that path)
+4. **DMS replication instance security group** — for DMS CDC (if using that path; rule in Step 3a of `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)")
 5. **EC2 bastion** — for manual psql operations (alternative to CloudShell)
 
 ### CloudShell VPC Environment (Alternative for Manual Operations)
@@ -172,8 +172,8 @@ psql "host=<aurora-endpoint> port=5432 dbname=<database-name> user=postgres sslm
 
 If using AWS DMS for migration:
 
-1. **DMS replication instance** must be in a VPC subnet that can reach both Supabase (internet) and Aurora (private)
-2. **Source endpoint** (Supabase): uses public internet — ensure the DMS subnet has a NAT gateway or internet gateway
+1. **DMS replication instance** must be able to reach both Supabase (internet) and Aurora (private): create it publicly accessible with network type `DUAL`, in the public subnets of the Aurora VPC (Step 2 in `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)")
+2. **Source endpoint** (Supabase): uses the public internet through the instance's own public addresses. The subnets' route tables need `::/0` and `0.0.0.0/0` to an internet gateway. A NAT gateway gives an IPv4 route only and does not reach an IPv6-only source
 3. **Target endpoint** (Aurora): uses private networking within the VPC
 4. **Security group** for the DMS replication instance must allow outbound to Supabase on port 5432 and to Aurora on port 5432, and the Aurora security group must allow inbound 5432 from it (recipe: Step 3a in `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)")
 5. **SSL**: Always use `SslMode: require` on BOTH source and target endpoints
@@ -187,10 +187,9 @@ If using AWS DMS for migration:
 Is the source database external (outside AWS VPC)?
 ├── YES (Supabase, Heroku, Neon, GCP, Azure, on-premises via internet)
 │   └── DMS replication instance MUST have outbound internet access:
-│       ├── Option A (simplest): --publicly-accessible flag during creation
-│       │   Instance gets a public IP and can route to external sources directly
-│       └── Option B: Private instance in a subnet with NAT gateway
-│           Instance routes outbound traffic through NAT (more complex, no public IP)
+│       └── Create it with --publicly-accessible in public subnets (internet gateway route)
+│           Instance gets its own public addresses and reaches external sources directly
+│           (a NAT gateway gives IPv4 only and does not reach an IPv6-only source)
 │       ★ IMPORTANT: --publicly-accessible CANNOT be changed after creation.
 │         If you create without it, you must delete and recreate the instance.
 └── NO (source is in the same VPC or peered VPC)

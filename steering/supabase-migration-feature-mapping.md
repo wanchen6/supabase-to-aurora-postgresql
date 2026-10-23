@@ -615,7 +615,6 @@ Vercel serverless functions run outside your AWS VPC and cannot directly connect
 | ------ | ----------- | -------- | ---------- | -------- |
 | Aurora Data API | Any | High (HTTPS only, IAM auth) | Low | Simple CRUD apps, < 45s queries |
 | AWS Amplify Hosting | N/A (alternative) | High (IAM roles, VPC-enabled Lambda) | Medium | Apps needing VPC access without Vercel |
-| Aurora public access | Any | Lower (IP-restricted) | Low | Dev/test only |
 | Vercel Secure Compute + PrivateLink | Enterprise | Highest (VPC peering) | High | Production with strict security |
 
 ### Recommended: Aurora Data API + Vercel OIDC
