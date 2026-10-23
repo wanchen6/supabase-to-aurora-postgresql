@@ -753,7 +753,7 @@ Before starting the cutover window:
 
 - [ ] All replication paths show lag < 1 MB (native) or < 5 seconds (DMS)
 - [ ] DMS validation shows all tables as `Validated` (if using DMS)
-- [ ] Exact row counts (`count(*)`) and table checksums match between source and target for every table (see [Offline Validation](#offline-validation-non-dms-paths); statistics-view estimates are not valid for this check)
+- [ ] Exact row counts (`count(*)`) and table checksums (full or sampled, as chosen in Offline Validation) match between source and target (see [Offline Validation](#offline-validation-non-dms-paths); statistics-view estimates are not valid for this check)
 - [ ] Rollback strategy selected and infrastructure provisioned (e.g., fall forward replica A' if using Strategy 2)
 - [ ] Application maintenance page or feature flag is ready
 - [ ] Rollback plan is documented and reviewed
