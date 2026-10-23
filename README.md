@@ -6,15 +6,15 @@ A [Kiro Power](https://kiro.dev/docs/powers/) that automates migrating a Postgre
 
 Supabase is a good starting point — fast setup, bundled auth, auto-generated APIs. When teams hit limits when their workload or requirements grow beyond what the platform supports:
 
-- **Compliance requirements** — Supabase has SOC 2 and HIPAA (paid add-on), but no FedRAMP authorization or GovCloud support. Regulated industries (healthcare, fintech, government) often need certifications that require migrating to a dedicated cloud provider.
-- **Connection limits** — Supabase's default compute tiers cap direct connections at 60–500 depending on plan. High-concurrency apps or Lambda-heavy workloads exhaust these quickly. Aurora scales independently from connection pool configuration.
-- **Single-region only** — Supabase projects run in one region. A [February 2026 outage](https://www.supabase.com/blog/supabase-incident-on-february-12-2026) took down all services in us-east-2 for 3+ hours with no automatic failover. Aurora supports Multi-AZ failover (typically < 30 seconds) and Global Database for cross-region DR.
-- **VPC isolation** — Supabase connects over the public internet. Workloads that require private network access (PCI scope reduction, internal tooling, zero-trust architectures) need a database inside a VPC.
-- **Cost at production scale** — Supabase's per-project billing for compute, PITR, and read replicas (each inherits full primary disk) adds up. Aurora's Reserved Instances and shared cluster storage change the math at scale.
-- **Operational control** — Supabase limits PostgreSQL parameter tuning, extension availability, and major version upgrade options. Aurora exposes 90+ extensions, full parameter group control, in-place minior and major upgrades, and blue/green upgrades with near-zero downtime.
+- **Compliance requirements** — Supabase documents SOC 2 Type 2 (the report is available to Team and Enterprise plan customers) and HIPAA support through a BAA and a HIPAA add-on request on the Team plan or higher ([SOC 2](https://supabase.com/docs/guides/security/soc-2-compliance), [shared responsibility](https://supabase.com/docs/guides/deployment/shared-responsibility-model)). Regulated industries (healthcare, fintech, government) often need other certifications, for example FedRAMP or GovCloud hosting. Check each provider's current compliance pages for those (check before relying on it; not confirmed here, 2026-10-22).
+- **Connection limits** — Supabase's direct connection limit depends on the compute size of the project (check the current Supabase compute and disk documentation for the numbers). High-concurrency apps or Lambda-heavy workloads can exhaust a limit quickly. Aurora instance sizing and connection pooling are configured independently (RDS Proxy, Serverless v2).
+- **Regional resilience** — A Supabase project is deployed into the region chosen at creation. A [February 2026 outage](https://supabase.com/blog/supabase-incident-on-february-12-2026) affected all services in us-east-2 for 3 hours 42 minutes, and the incident post says Supabase does not offer automatic cross-region failover for customer Postgres databases (as of that post; check before relying on it, checked 2026-10-22). AWS documents Aurora failover to a replica as typically restoring service in less than 60 seconds and often less than 30 seconds ([Aurora high availability](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Concepts.AuroraHighAvailability.html)), and Aurora Global Database for cross-region DR.
+- **VPC isolation** — Supabase database hosts are reached over the internet by default. Workloads that require private network access (PCI scope reduction, internal tooling, zero-trust architectures) need a database inside a VPC. Check which private networking options your Supabase plan offers (check before relying on it, 2026-10-22).
+- **Cost at production scale** — Supabase's per-project billing for compute, PITR, and read replicas (each inherits full primary disk) adds up. Aurora's Reserved Instances and shared cluster storage change the math at scale. Compare with current prices before deciding (check before relying on it, 2026-10-22).
+- **Operational control** — Supabase limits PostgreSQL parameter tuning, extension availability, and major version upgrade options. Aurora exposes a large set of supported extensions ([list](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/AuroraPostgreSQL.Extensions.html)), parameter group control, in-place minor and major upgrades, and blue/green upgrades with near-zero downtime. Check what your Supabase plan allows for parameters and extensions before comparing (check before relying on it, 2026-10-22).
 - **AWS ecosystem integration** — If your stack is already on AWS (Lambda, ECS, Secrets Manager, CloudTrail), running the database outside AWS adds network egress costs and operational complexity. Aurora integrates natively with IAM, Secrets Manager, CloudWatch, and zero-ETL pipelines to Redshift.
 
-If none of these apply — your workload is small, no restrict security or compliance requirements, no long-term reliability requirement, no AWS dependency, and Supabase's developer experience is valuable — staying on Supabase is a reasonable choice.
+If none of these apply — your workload is small, no strict security or compliance requirements, no long-term reliability requirement, no AWS dependency, and Supabase's developer experience is valuable — staying on Supabase is a reasonable choice.
 
 ## Prerequisites
 
@@ -94,8 +94,10 @@ The agent never edits MCP configuration. When an entry needs a change, it shows 
 
 ## Power Structure
 
+The repository is named `supabase-to-aurora-postgresql`. The power's internal `name` in `POWER.md` stays `supabase-to-apg-migration-power` so that existing installs keep working.
+
 ```text
-supabase-to-apg-migration-power/
+supabase-to-aurora-postgresql/
 ├── POWER.md                                        # Agent instructions and intake flow
 ├── mcp.json                                        # MCP server configuration
 ├── README.md                                       # This file

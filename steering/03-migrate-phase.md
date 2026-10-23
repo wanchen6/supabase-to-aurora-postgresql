@@ -631,6 +631,8 @@ Before cutover, ensure CDC lag is minimal:
 
 See the [Cutover Procedure](#cutover-procedure) section below.
 
+## Path 4: Hybrid Migration
+
 Best for mixed schemas where some tables suit native replication and others need DMS or offline migration.
 
 ### Strategy by Table Category
