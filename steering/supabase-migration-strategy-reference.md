@@ -47,7 +47,7 @@ Is downtime acceptable?
 **Rule of thumb for online migration path selection:**
 - **Source has IPv4** (A record resolves) → Use native PostgreSQL logical replication (preferred — simpler, lower latency, no DMS infrastructure)
 - **Source is IPv6-only** (only AAAA record) → Use DMS in dual-stack mode with CDC (the verified online route; DMS has its own public IPv4 and IPv6 connectivity). Native replication works over IPv4 with the Supabase IPv4 add-on and a NAT gateway. A direct subscription from Aurora to an IPv6-only publisher is not yet validated
-- **Fallback for either**: DMS for tables where native replication fails (missing PK, unsupported type, or when built-in validation is needed)
+- **Fallback for either**: DMS for tables where native replication fails (unsupported type, or when built-in validation is needed). DMS is not a fix for a table without a primary key: see "Tables Without Primary Keys" in `03-migrate-phase.md`
 
 **IMPORTANT — IPv6-only sources (e.g., Supabase without IPv4 add-on):** Plan the online route around DMS dual-stack or the IPv4 add-on path. A direct subscription from Aurora to an IPv6-only publisher is not yet validated (one test timed out; see the Verification status table in `supabase-prerequisites-and-connectivity.md` → "Online Migration from IPv6-Only Supabase Sources"). Options:
 
