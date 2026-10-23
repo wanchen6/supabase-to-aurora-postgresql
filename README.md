@@ -32,7 +32,7 @@ If none of these apply — your workload is small, no restrict security or compl
 
 ## Quick Start
 
-1. Verify the Supabase and Aurora PostgreSQL MCP servers are connected (Kiro MCP Servers panel)
+1. Verify the Supabase MCP server is connected (Kiro MCP Servers panel). The Aurora PostgreSQL MCP server is optional
 2. Open a chat and say: *"I want to migrate my Supabase database to Aurora PostgreSQL"*
 3. The agent verifies connectivity, then walks you through a 4-step intake (source details, app details, target proposal, plan confirmation)
 4. After you confirm the plan, the agent executes — you only confirm once more before the live cutover
@@ -68,11 +68,11 @@ If your app uses `@supabase/supabase-js`, the agent refactors the data layer to 
 | Server | Purpose | Auth |
 | ------ | ------- | ---- |
 | `supabase` | Source database discovery | OAuth (browser flow on first use) |
-| `awslabs.postgres-mcp-server` | Aurora target operations | AWS credentials via default profile |
+| `awslabs.postgres-mcp-server` | Aurora target operations (optional; the AWS CLI and the Aurora Data API cover the same work). Started with `--allow_write_query`, so every write through it needs your confirmation | AWS credentials via default profile |
 | `aws-knowledge-mcp-server` | Documentation lookups | HTTP (no auth) |
 | `awslabs.aws-pricing-mcp-server` | Cost analysis | AWS credentials via default profile |
 
-If the Aurora or Pricing MCP server fails to connect, add your AWS profile and region to the power's MCP config:
+If the Aurora or Pricing MCP server fails to connect, add your AWS profile and region to the power's MCP config yourself (the agent shows you the entry and never edits MCP configuration):
 
 ```json
 "env": {

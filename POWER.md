@@ -20,7 +20,7 @@ The power supports three migration paths:
 
 **Rule of thumb for online migration**: Try native PostgreSQL logical replication first. If it doesn't work for a specific table (e.g., missing primary key, unsupported data type), use DMS for that table.
 
-The agent uses four MCP servers: Supabase MCP (OAuth-authenticated, for source database discovery), Aurora PostgreSQL MCP (pgwire + Secrets Manager, for target operations), AWS Knowledge MCP (for documentation lookups), and AWS Pricing MCP (for cost analysis). The user only needs to provide details and confirm at critical decision points.
+The agent uses up to four MCP servers: Supabase MCP (OAuth-authenticated, read-only, for source database discovery), Aurora PostgreSQL MCP (pgwire + Secrets Manager, for target operations; optional, the AWS CLI and the Aurora Data API cover the same work), AWS Knowledge MCP (for documentation lookups), and AWS Pricing MCP (for cost analysis). The user only needs to provide details and confirm at critical decision points.
 
 **Important**: The Supabase MCP server in this power's `mcp.json` is read-only because its URL carries the `read_only=true` parameter ([Supabase MCP documentation](https://supabase.com/docs/guides/getting-started/mcp)). Any write operation on Supabase (creating publications, replication slots, schema changes) is a command the user runs. The agent provides the exact command and waits for confirmation before proceeding. The agent never edits MCP configuration: if an entry needs to change, it shows the entry and asks the user to apply it.
 
@@ -54,7 +54,7 @@ Follow Decision 0-11 in `02-mobilize-phase.md`.
 
 ## Try It
 
-1. Ensure the Supabase and Aurora PostgreSQL MCP servers are connected (Kiro MCP Servers panel)
+1. Ensure the Supabase MCP server is connected (Kiro MCP Servers panel). The Aurora PostgreSQL MCP server is optional
 2. Ensure your AWS CLI is configured: `aws sts get-caller-identity`
 3. Say: *"I want to migrate my Supabase database to Aurora PostgreSQL"*
 4. The agent asks for your Supabase project URL, plan, and AWS region (Steps 0–3)
@@ -77,24 +77,26 @@ Follow Decision 0-11 in `02-mobilize-phase.md`.
 
 ### Step 0: Verify MCP Server Configuration (MANDATORY)
 
-Before starting the migration, verify that both MCP servers are properly configured and connected:
+**The agent never edits MCP configuration.** When an entry needs to change, show the user the exact entry and ask them to apply it and reload the MCP server. Then verify with a read-only call.
 
-1. **Supabase MCP server**: Attempt to call `list_projects` or `list_tables`.
+1. **Supabase MCP server** (required): Attempt to call `list_projects` or `list_tables`.
 
-   - **If it fails entirely**: Prompt the user to complete the OAuth flow in the Kiro MCP Servers panel.
-   - **If it succeeds but returns the wrong project**: Fix this yourself — edit the power's Supabase MCP server entry in `~/.kiro/settings/mcp.json` (under the `powers` block) and add `?project_ref=<correct-ref>` to the URL. Do NOT create a new entry in workspace config — that causes auth errors. Wait for reconnect, verify with `list_tables`. If auth is needed after the change, prompt the user to complete the OAuth flow. See `supabase-prerequisites-and-connectivity.md` → "Auto-Fix: Wrong Project Connected" for details.
+   - **If it fails entirely**: Ask the user to complete the OAuth flow in the Kiro MCP Servers panel.
+   - **If it succeeds but returns the wrong project**: Do NOT edit the configuration. Tell the user which project came back and which one is expected, show the corrected URL `https://mcp.supabase.com/mcp?read_only=true&project_ref=<correct-ref>`, and ask the user to update the existing Supabase entry of this power (not to add a second entry in the workspace config, which was observed to cause auth errors). When the user says it is saved, retry `list_tables` and verify the project. If auth is needed after the change, ask the user to complete the OAuth flow. See `supabase-prerequisites-and-connectivity.md` → "Wrong Project Connected" for the steps.
    - **If it succeeds and returns the correct project**: Proceed to Step 1.
 
-2. **Aurora PostgreSQL MCP server**: Attempt to call `get_database_connection_info`. If it fails with a profile error, the user may need to add `AWS_PROFILE` and `AWS_REGION` to the MCP server env config (only needed if their default AWS profile isn't the correct one):
+2. **Aurora PostgreSQL MCP server** (optional): Attempt to call `get_database_connection_info`. If it fails with a profile error, the user may add `AWS_PROFILE` and `AWS_REGION` to the MCP server env config (only needed if their default AWS profile isn't the correct one). Show the user this message; do not edit the configuration yourself:
 
    ```text
    "The Aurora PostgreSQL MCP server couldn't find your AWS credentials.
    By default it uses your default AWS CLI profile. If you need a different profile or region,
    add AWS_PROFILE and AWS_REGION to the MCP server env settings in the Kiro MCP Servers panel
-   or .kiro/settings/mcp.json. The server will reconnect automatically after you save."
+   or in the power's entry of your MCP configuration. The server reconnects after you save."
    ```
 
-Do NOT proceed to Step 1 until both MCP servers are confirmed working and returning data from the correct project.
+   If the user does not want to configure it, or it stays unavailable, continue. Provisioning and schema work use the AWS CLI recipe in `02-mobilize-phase.md` → "Provision with the AWS CLI (no Aurora MCP needed)" and the Aurora Data API. Tell the user what is lost (convenience queries through the MCP) and that every write needs their confirmation either way.
+
+Proceed to Step 1 once the Supabase MCP returns data from the correct project.
 
 ### Step 1: Source Database Details (Supabase)
 

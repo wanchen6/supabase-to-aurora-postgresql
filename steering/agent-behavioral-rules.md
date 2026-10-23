@@ -25,7 +25,7 @@ These rules apply to ALL phases of the migration. Violating any of these rules d
    Shall I proceed?"
    ```
 
-2. **Default to read-only Supabase access.** The Supabase MCP server should run in read-only mode. For any write operations on Supabase (creating publications, replication slots, schema changes), provide the exact SQL or CLI command for the user to run manually, explain what it does, and verify the result with a read-only query after the user confirms completion.
+2. **Default to read-only Supabase access.** The power's `mcp.json` sets `read_only=true` on the Supabase MCP URL, so the server runs read-only. For any write operations on Supabase (creating publications, replication slots, schema changes), provide the exact SQL or CLI command for the user to run manually, explain what it does, and verify the result with a read-only query after the user confirms completion.
 
 ## MCP Server Usage
 
@@ -37,7 +37,9 @@ These rules apply to ALL phases of the migration. Violating any of these rules d
    Use aws-knowledge-mcp search_documentation with query "Aurora PostgreSQL <topic>"
    ```
 
-3. **Use web search tools to confirm from official guides.** When AWS Knowledge MCP doesn't have the answer, use `remote_web_search` and `webFetch` to check official AWS documentation, blog posts, and re:Post articles before providing guidance.
+3. **The agent never edits MCP configuration.** If an MCP entry is missing, wrong or needs a parameter (for example the Supabase `project_ref`, or `AWS_PROFILE` and `AWS_REGION` on the Aurora server), show the exact entry, ask the user to apply it and reload the server, then verify with a read-only call.
+4. **The Aurora PostgreSQL MCP server is optional.** Use it when it is registered and working. If not, continue with the AWS CLI and the Aurora Data API. `--allow_write_query` lets the server run write SQL, so every write through it needs the user's confirmation, like any other write.
+5. **Use web search tools to confirm from official guides.** When AWS Knowledge MCP doesn't have the answer, use `remote_web_search` and `webFetch` to check official AWS documentation, blog posts, and re:Post articles before providing guidance.
 
 ## Command Execution
 
@@ -77,7 +79,7 @@ These rules prevent the agent from skipping guidance that exists in the steering
 
    Only after reading the actual error message should you propose a fix.
 
-5. **When creating AWS resources, read the prerequisites steering file for the correct settings.** Do not rely on general knowledge for DMS instance configuration, endpoint settings, or security group rules. The `supabase-prerequisites-and-connectivity.md` file has the exact commands and settings for each resource. Key examples:
+5. **When creating AWS resources, read the prerequisites steering file for the correct settings.** Do not rely on general knowledge for DMS instance configuration, endpoint settings, or security group rules. `02-mobilize-phase.md` ("AWS DMS Setup (Fallback Path)" and "Provision with the AWS CLI") has the exact commands, and `supabase-prerequisites-and-connectivity.md` has the connectivity rules and settings. Key examples:
    - DMS replication instance: must be `--publicly-accessible` for external sources (Supabase)
    - DMS target endpoint: must include `AfterConnectScript` for FK bypass when schema has FKs
    - Both endpoints: must use `SslMode: require`
