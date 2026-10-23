@@ -537,10 +537,19 @@ Identify and document migration risks:
 
 ### Step 1: Gather Source Platform Costs
 
-Ask the user for their current monthly cost on the source platform. If they don't know the exact amount, ask them to check their billing dashboard. At minimum, get:
-- Current plan name and monthly price
-- Any add-ons (e.g., compute upgrades, storage add-ons, connection pooling, IPv4)
-- Number of databases on the plan
+Record where the current Supabase cost comes from as `current_monthly_source`:
+
+- `mcp`: the Supabase MCP returned the plan. The Supabase MCP documentation says `project_ref` disables the account tools, so a connection scoped to one project cannot read the plan. A connection without `project_ref` can read the organization's plan name through `get_organization`, read-only. No tool returns a monthly bill, add-ons or usage. Never ask the user to widen the MCP entry for this; the agent never edits MCP configuration.
+- `user_stated`: the user told you the plan and the monthly amount.
+- `unknown`: the user does not know. Accept "unknown" without pressure.
+
+If the plan was not read through the MCP, ask one short question:
+
+> I could not read your Supabase plan from here. Which plan is the project on (Free, Pro, Team or Enterprise), and what do you pay per month in total? The Billing page of your organization in the Supabase dashboard shows both. "Unknown" is fine.
+
+Never invent or estimate a plan price, and never take a price from memory or from the pricing page as the user's bill, because add-ons and usage change the amount. Also note any add-ons the user mentions (compute upgrades, storage add-ons, connection pooling, point-in-time recovery, IPv4) and the number of databases on the plan.
+
+When the current cost is `unknown`, show the source column as unknown and do not compute a percentage change or a saving. When the plan is Free, the baseline is $0 and the migration adds cost: present the Aurora figure as added cost, never as a saving, and explain what the user gets for it (backups, point-in-time restore, availability, network isolation; see `aurora-capabilities-reference.md`).
 
 ### Step 2: Query Multiple Aurora Pricing Options via MCP
 
@@ -643,6 +652,8 @@ Present the source platform cost alongside the RECOMMENDED Aurora option AND the
 | **Total monthly** | **$** | **$** |
 
 Then add: "I compared 6 pricing options for Aurora. Here's the range:"
+
+(If the current cost is unknown, write "n/a" in the last column. If it is $0, write "adds cost".)
 
 | Option | Monthly Total | vs Source Platform |
 | ------ | ------------- | ------------------ |

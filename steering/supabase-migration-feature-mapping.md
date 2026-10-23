@@ -906,7 +906,7 @@ Build a comparison table for the migration business case:
 | Edge Functions | Included | Lambda: $<per-invocation> × <invocations> |
 | Total Monthly | $<total> | $<total> |
 
-Use AWS Pricing MCP to fill in Aurora, Cognito, S3, AppSync, and Lambda costs for the specific region. Obtain Supabase costs from the user's billing dashboard or the [Supabase pricing page](https://supabase.com/pricing).
+Use AWS Pricing MCP to fill in Aurora, Cognito, S3, AppSync, and Lambda costs for the specific region. Obtain the current Supabase cost from the user (record its source as `mcp`, `user_stated` or `unknown`, see `01-assess-phase.md` → Cost Analysis Step 1). Do not invent plan prices: the [Supabase pricing page](https://supabase.com/pricing) can explain what a plan includes, but it is not the user's bill. A Free plan is a $0 baseline, and the migration then adds cost.
 
 ### Key Cost Considerations
 

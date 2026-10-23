@@ -176,9 +176,10 @@ Validation: <DMS online validation | offline spot-check>
 Application: <framework> on <hosting>
   → Connection refactoring needed: <yes/no and what>
 Cost Estimate (multi-option comparison completed — see details below):
-  → Current Supabase cost: $<monthly> (<plan>)
+  → Current Supabase cost: $<monthly> (<plan>) — source: <mcp | user_stated | unknown>
+     (a Supabase MCP connection scoped to one project cannot read the plan, so ask the user; Free is a $0 baseline, and the migration adds cost; if unknown, say so and do not compute a saving)
   → Recommended Aurora option: <option-name> — $<monthly> (<capacity-model>, <region>)
-  → Savings/increase vs source: <percentage and direction>
+  → Change vs source: <percentage and direction | "adds cost" for a $0 baseline | "n/a" if the source cost is unknown>
   → Options compared: On-Demand, 1yr RI, 3yr RI, DB Savings Plan, Serverless v2, Serverless v2 + Savings Plan
   → Notes: <why recommended option was chosen, commitment trade-offs>
 ```
