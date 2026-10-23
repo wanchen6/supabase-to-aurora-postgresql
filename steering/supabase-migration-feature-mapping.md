@@ -874,10 +874,10 @@ Store DMS endpoint credentials in AWS Secrets Manager instead of passing plainte
 - **Step 1b** creates the IAM role that DMS uses to read the secrets (`SecretsManagerAccessRoleArn`): the trust policy for the DMS service principals and a permission policy limited to the two secrets.
 - **Steps 4 and 5** create the endpoints. The secret and the role go inside `--postgre-sql-settings` as `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn`, in a JSON file. `--secrets-manager-secret-id` and `--secrets-manager-access-role-arn` are not valid top-level flags, and the host and port stay in the secret, so the endpoint commands carry no `--server-name` or `--port`.
 
-For the Aurora target endpoint, ALWAYS include:
+For the Aurora target endpoint, include:
 
 - `--ssl-mode require` to enforce SSL for data in transit
-- `"AfterConnectScript": "SET session_replication_role = 'replica';"` in the target settings file, to bypass FK checks during DMS load (see Decision 6 in `02-mobilize-phase.md`, and Step 5 of the DMS setup)
+- `"AfterConnectScript": "SET session_replication_role = 'replica';"` in the target settings file, so the DMS session bypasses FK checks and triggers during full load and CDC (see Decisions 6 and 8 in `02-mobilize-phase.md`, and Step 5 of the DMS setup). Leave it out only when Decision 6 chose another foreign key bypass or Decision 8 chose to let triggers fire during CDC; then follow the alternative documented in those decisions
 
 ### Heartbeat and Boolean Mapping
 

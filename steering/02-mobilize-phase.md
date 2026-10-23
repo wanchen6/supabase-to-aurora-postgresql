@@ -1386,7 +1386,7 @@ aws dms create-endpoint \
 }
 ```
 
-Keep `AfterConnectScript` unless Decision 6 chose another foreign key bypass. Omit it only in that case. The script contains single quotes, and the AWS CLI shorthand syntax rejects it (`Error parsing parameter '--postgre-sql-settings': Expected: ',', received: '''`). Use the JSON file with `file://`.
+Include `AfterConnectScript` for the DMS session unless Decision 6 chose another foreign key bypass or Decision 8 chose to let triggers fire during CDC. Omit it only in those cases and follow the alternative documented in those decisions. The script contains single quotes, and the AWS CLI shorthand syntax rejects it (`Error parsing parameter '--postgre-sql-settings': Expected: ',', received: '''`). Use the JSON file with `file://`.
 
 For RDS PostgreSQL targets, use `--engine-name postgres` instead of `aurora-postgresql`.
 
