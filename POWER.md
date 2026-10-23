@@ -132,7 +132,7 @@ Do NOT present a 7-item questionnaire. State what you've inferred and ask for co
 "Based on your Supabase project and Vercel URL, here's what I can see:
 - Next.js app hosted on Vercel
 - Uses @supabase/supabase-js for database access
-- Database is on Supabase Free plan, <X> MB, <Y> tables
+- Database is on the Supabase <plan> plan (as you told me), <X> MB, <Y> tables
 Is that correct? Anything else I should know about the app?"
 ```
 
