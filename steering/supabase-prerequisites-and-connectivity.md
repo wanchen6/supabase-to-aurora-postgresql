@@ -437,6 +437,8 @@ Because the Supabase MCP server runs in read-only mode, the following operations
 | Create replication slot | `SELECT pg_create_logical_replication_slot('supabase_to_aurora_slot', 'pgoutput');` | Native replication setup |
 | Drop replication slot (cleanup) | `SELECT pg_drop_replication_slot('supabase_to_aurora_slot');` | Post-migration cleanup |
 | Drop publication (cleanup) | `DROP PUBLICATION supabase_to_aurora;` | Post-migration cleanup |
+| Drop the DMS replication slot (cleanup) | `SELECT pg_drop_replication_slot('<dms-slot>');` (find the name in `pg_replication_slots`) | After the DMS task is stopped and deleted |
+| Drop the DMS helper objects on the source (cleanup) | `drop event trigger if exists awsdms_intercept_ddl;`, `drop function if exists <schema>.awsdms_intercept_ddl();`, `drop table if exists <schema>.awsdms_heartbeat, <schema>.awsdms_ddl_audit;` (order and checks: `03-migrate-phase.md` → "DMS Cleanup on the Source") | After the DMS slot is dropped |
 | Apply schema migrations | `CREATE TABLE`, `ALTER TABLE`, etc. | Schema changes on Supabase |
 
 **How the agent handles read-only limitations**:

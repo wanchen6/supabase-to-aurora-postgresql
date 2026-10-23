@@ -236,7 +236,8 @@ Is DMS part of the migration? (from Assess phase)
 1. If DMS is being used AND schema has ONLY columns and PKs (no FKs, no CHECK, no triggers, no indexes): use Method A (DMS creates tables). Simplest path.
 2. If DMS is being used AND schema has any additional objects: use Method B (pre-create schema via Data API or CloudShell, DMS uses DO_NOTHING). Handle additional objects per Decision 1 tree above.
 3. If no DMS (offline migration): use Method C (pg_dump/pg_restore handles everything).
-4. For running DDL against private Aurora: prefer Data API (works from anywhere, no VPC needed) or CloudShell (free). Use EC2 bastion for complex scripts that exceed Data API's 45-second timeout.
+4. Skip tables named `awsdms_*` when exporting or pre-creating the schema: they are leftovers from earlier DMS tasks (`--exclude-table='*.awsdms_*'` for `pg_dump`).
+5. For running DDL against private Aurora: prefer Data API (works from anywhere, no VPC needed) or CloudShell (free). Use EC2 bastion for complex scripts that exceed Data API's 45-second timeout.
 
 ### Decision 2: Schema Export Scenario (for Method B only)
 

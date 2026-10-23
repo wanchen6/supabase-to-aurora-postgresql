@@ -225,9 +225,11 @@ GROUP BY schemaname
 ORDER BY SUM(pg_total_relation_size(schemaname || '.' || tablename)) DESC;
 
 -- Detailed table inventory with row counts
+-- (relname NOT LIKE 'awsdms\_%' leaves out helper tables that an earlier DMS task left on the source)
 SELECT schemaname, relname, n_live_tup,
   pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) AS size
 FROM pg_stat_user_tables
+WHERE relname NOT LIKE 'awsdms\_%'
 ORDER BY pg_total_relation_size(schemaname || '.' || relname) DESC;
 
 -- Tables WITHOUT primary keys (critical for CDC planning)

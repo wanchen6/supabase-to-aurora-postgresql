@@ -475,6 +475,15 @@ aws dms create-replication-task \
         "table-name": "%"
       },
       "rule-action": "include"
+    }, {
+      "rule-type": "selection",
+      "rule-id": "2",
+      "rule-name": "exclude-dms-helper-tables",
+      "object-locator": {
+        "schema-name": "public",
+        "table-name": "awsdms_%"
+      },
+      "rule-action": "exclude"
     }]
   }' \
   --replication-task-settings '{
@@ -513,6 +522,8 @@ aws dms create-replication-task \
   --region <aws-region>
 ```
 
+The second selection rule keeps DMS helper tables left in the source (`awsdms_heartbeat`, `awsdms_ddl_audit`) out of the task, because they come from DMS and not from the application. In a selection rule `%` matches zero or more characters and `_` matches a single character ([wildcards](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TableMapping.SelectionTransformation.Wildcards.html)), so `awsdms_%` also matches a name such as `awsdmsX1`. This exclude rule was not exercised on a live task.
+
 ### Step 2: Start the DMS Task
 
 ```bash
@@ -545,6 +556,8 @@ CloudWatch metrics to monitor:
 - `CDCLatencyTarget` — lag at the target
 - `CDCIncomingChanges` — pending changes
 - `FullLoadThroughputRowsSource` — rows/second during full load
+
+While the task runs, the replication slot and the `awsdms_` helper tables exist on the source. DMS creates them, not the agent. See [Mobilize Step 4b](02-mobilize-phase.md#step-4b-what-dms-writes-to-the-source) for what they are and [DMS Cleanup on the Source](#dms-cleanup-on-the-source) for removing them.
 
 When a table shows `Table error`, follow [DMS table error: exitwhy 1 / check target database logs](troubleshooting.md#dms-table-error-exitwhy-1--check-target-database-logs) and read the target database log yourself.
 
@@ -781,6 +794,8 @@ aws dms stop-replication-task \
   --replication-task-arn <task-arn> \
   --region <aws-region>
 ```
+
+The DMS logical replication slot and the `awsdms_` helper objects stay on the source after the task stops. Remove them after the stabilization period, following [DMS Cleanup on the Source](#dms-cleanup-on-the-source).
 
 **Step 4: Reset sequences on target**
 
@@ -1062,10 +1077,43 @@ After the stabilization period (typically 2–4 weeks of stable operation on Aur
 
 - Verify no applications are still connecting to the source database
 - Confirm no orphaned replication slots on the source (`SELECT * FROM pg_replication_slots;`)
-- Stop and delete DMS replication tasks and resources
+- Stop and delete DMS replication tasks and resources, then remove the slot and the `awsdms_` helper objects from the source ([DMS Cleanup on the Source](#dms-cleanup-on-the-source))
 - Take a final backup/snapshot of the source database for archival
 - Decommission the source database instance
 - Update architecture diagrams and CMDB records
+
+### DMS Cleanup on the Source
+
+DMS writes helper objects to the source and holds a replication slot while the task exists ([Mobilize Step 4b](02-mobilize-phase.md#step-4b-what-dms-writes-to-the-source)). Remove them after the stabilization period, in this order:
+
+1. Stop the task and wait for `stopped`, then delete it (`aws dms delete-replication-task --replication-task-arn <task-arn>`). Ask first.
+2. Find the slot with a read-only query. `active` is false once the task is stopped:
+
+   ```sql
+   select slot_name, active from pg_replication_slots;
+   ```
+
+3. The user runs the source-side commands (the agent does not write to the source). Use the slot name from step 2 and the schema the helper objects live in. `<schema>` is the value of `HeartbeatSchema` and `DdlArtifactsSchema` on the source endpoint, and `public` when they are not set. Drop the event trigger before the audit table it writes to, in the order the [DMS documentation for removing its artifacts from a PostgreSQL source](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Source.PostgreSQL.html) gives:
+
+   ```sql
+   select pg_drop_replication_slot('<slot>');
+   drop event trigger if exists awsdms_intercept_ddl;
+   drop function if exists <schema>.awsdms_intercept_ddl();
+   drop table if exists <schema>.awsdms_heartbeat, <schema>.awsdms_ddl_audit;
+   ```
+
+   If the audit table is dropped while the event trigger still exists, DDL on the source fails (on a Supabase project that includes the platform's own migrations) until the trigger is dropped. Do not drop the schema itself: it can hold application tables. Check what is left with `select evtname from pg_event_trigger where evtname like 'awsdms\_%';` and `select n.nspname, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where p.proname like 'awsdms\_%';`, and drop anything they return in the same order (trigger, function, table).
+4. Verify with read-only queries: `pg_replication_slots` no longer lists the task's slot, the event trigger is gone, and no `awsdms_` tables remain:
+
+   ```sql
+   select to_regclass('<schema>.awsdms_heartbeat') as heartbeat, to_regclass('<schema>.awsdms_ddl_audit') as ddl_audit;
+   select table_schema, table_name from information_schema.tables where table_name like 'awsdms\_%';
+   select evtname from pg_event_trigger where evtname like 'awsdms\_%';
+   ```
+
+   Both `to_regclass` values are null and the second and third queries return no rows.
+
+Do this before you decommission the source. An unused slot keeps WAL on the source.
 
 ## Common Challenges & Solutions
 
