@@ -50,7 +50,7 @@ If none of these apply — your workload is small, no restrict security or compl
 
 ## What the Agent Does
 
-- **Assess** — connects to Supabase via MCP (OAuth, read-only), discovers schema/extensions/RLS/features, queries actual Aurora pricing, presents a multi-option cost comparison
+- **Assess** — connects to Supabase via MCP (OAuth, `read_only=true`), discovers schema/extensions/RLS/features, queries actual Aurora pricing, presents a multi-option cost comparison
 - **Mobilize** — provisions Aurora cluster, assesses VPC networking, migrates schema, configures replication or DMS infrastructure
 - **Migrate** — executes data migration, monitors lag, validates row counts, refactors application code (Supabase SDK → direct PostgreSQL), performs cutover
 - **Modernize** — gathers statistics, reviews indexes, configures CloudWatch alarms, re-evaluates cost
@@ -82,13 +82,15 @@ If the Aurora or Pricing MCP server fails to connect, add your AWS profile and r
 }
 ```
 
-If the Supabase MCP connects but returns the wrong project (common with multiple orgs), add `project_ref` to the URL to force re-auth to the correct project:
+The Supabase entry in `mcp.json` ships with `read_only=true`, so queries run as a read-only Postgres user. If the Supabase MCP connects but returns the wrong project (common with multiple orgs), you scope it to one project yourself by adding `&project_ref=<your-project-ref>` to the URL of the Supabase entry:
 
 ```json
-"url": "https://mcp.supabase.com/mcp?project_ref=<your-project-ref>"
+"url": "https://mcp.supabase.com/mcp?read_only=true&project_ref=<your-project-ref>"
 ```
 
-Replace `<your-project-ref>` with the ID from your Supabase URL (e.g., `abcdefghijklmnopqrst` from `https://abcdefghijklmnopqrst.supabase.co`). Saving scopes the MCP connection to the specified project (and will prompt for authentication if required).
+Replace `<your-project-ref>` with the ID from your Supabase URL (e.g., `abcdefghijklmnopqrst` from `https://abcdefghijklmnopqrst.supabase.co`). Saving scopes the MCP connection to the specified project (and will prompt for authentication if required). The Supabase documentation lists `read_only` and `project_ref` as URL parameters that can be combined ([Supabase MCP documentation](https://supabase.com/docs/guides/getting-started/mcp)).
+
+The agent never edits MCP configuration. When an entry needs a change, it shows you the entry and asks you to apply it and reload the MCP server.
 
 ## Power Structure
 
@@ -119,7 +121,8 @@ supabase-to-apg-migration-power/
 - Aurora is always provisioned in a private VPC — public access is never enabled
 - All credentials stored in AWS Secrets Manager — never in chat or environment variables
 - Vercel connectivity uses OIDC federation — no static AWS access keys
-- Supabase MCP runs in read-only mode — no writes to source without your explicit confirmation
+- Supabase MCP is read-only because its URL carries `read_only=true`; source-side writes are commands you run yourself, after you confirm them
+- The agent never edits MCP configuration; it shows the entry and asks you to apply it
 
 ## Resources
 

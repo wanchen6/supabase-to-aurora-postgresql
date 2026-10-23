@@ -22,7 +22,7 @@ The power supports three migration paths:
 
 The agent uses four MCP servers: Supabase MCP (OAuth-authenticated, for source database discovery), Aurora PostgreSQL MCP (pgwire + Secrets Manager, for target operations), AWS Knowledge MCP (for documentation lookups), and AWS Pricing MCP (for cost analysis). The user only needs to provide details and confirm at critical decision points.
 
-**Important**: The Supabase MCP server can be configured in read-only mode via the Supabase dashboard. When read-only, any write operations on Supabase (creating publications, replication slots, schema changes) must be performed manually by the user. The agent will provide exact commands and wait for confirmation before proceeding.
+**Important**: The Supabase MCP server in this power's `mcp.json` is read-only because its URL carries the `read_only=true` parameter ([Supabase MCP documentation](https://supabase.com/docs/guides/getting-started/mcp)). Any write operation on Supabase (creating publications, replication slots, schema changes) is a command the user runs. The agent provides the exact command and waits for confirmation before proceeding. The agent never edits MCP configuration: if an entry needs to change, it shows the entry and asks the user to apply it.
 
 ## Migration Paths
 
@@ -216,7 +216,7 @@ See `03-migrate-phase.md` → "Post-Migration Activities", `04-modernize-phase.m
 
 | Server | Purpose | Connection |
 | ------ | ------- | ---------- |
-| `supabase` | Supabase source database discovery and assessment | HTTP — `https://mcp.supabase.com/mcp` (OAuth login — user selects project and permissions during setup) |
+| `supabase` | Supabase source database discovery and assessment | HTTP — `https://mcp.supabase.com/mcp?read_only=true` (OAuth login — user selects project and permissions during setup) |
 | `awslabs.postgres-mcp-server` | Aurora PostgreSQL target operations (create cluster, run queries, manage connections) | pgwire via AWS Secrets Manager — `--allow_write_query` enabled |
 | `aws-knowledge-mcp-server` | AWS documentation search, extension compatibility, best practices lookup | HTTP |
 | `awslabs.aws-pricing-mcp-server` | Aurora pricing queries, cost analysis, infrastructure cost comparison | stdio via uvx |
