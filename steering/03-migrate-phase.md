@@ -522,6 +522,8 @@ aws dms start-replication-task \
   --region <aws-region>
 ```
 
+`start-replication` is the type for the first run. After a failed or partial run, do not start the task again as is. Follow [Reload after a failed or partial run](troubleshooting.md#reload-after-a-failed-or-partial-run) and use `reload-target` at the end of those steps. If you changed an endpoint, run `test-connection` again first (see [Mobilize Step 6](02-mobilize-phase.md#step-6-test-endpoint-connections)).
+
 ### Step 3: Monitor DMS Task Progress
 
 ```bash
@@ -543,6 +545,8 @@ CloudWatch metrics to monitor:
 - `CDCLatencyTarget` — lag at the target
 - `CDCIncomingChanges` — pending changes
 - `FullLoadThroughputRowsSource` — rows/second during full load
+
+When a table shows `Table error`, follow [DMS table error: exitwhy 1 / check target database logs](troubleshooting.md#dms-table-error-exitwhy-1--check-target-database-logs) and read the target database log yourself.
 
 ### Step 4: Monitor DMS Validation
 
@@ -1081,7 +1085,7 @@ See `troubleshooting.md` → "DMS Full Load + CDC Foreign Key Handling" and "DMS
 
 ### DMS Log Analysis
 
-DMS task logs are in CloudWatch under `/aws/dms/tasks/<task-id>`. Key log signatures:
+DMS task logs are in CloudWatch under the log group `dms-tasks-<replication-instance-id>` (stream `dms-task-<task-external-id>`). Key log signatures:
 
 - `]E:` — Error messages (critical, usually cause task failure)
 - `]W:` — Warning messages (data issues, task continues)
@@ -1091,13 +1095,13 @@ Quick error search:
 
 ```bash
 aws logs filter-log-events \
-  --log-group-name /aws/dms/tasks/<task-id> \
+  --log-group-name dms-tasks-<replication-instance-id> \
   --filter-pattern "]E:" \
   --region <region> \
   --query "events[*].message" --output text
 ```
 
-Correlate DMS errors with Aurora PostgreSQL logs in `/aws/rds/cluster/<cluster-id>/postgresql` by timestamp.
+When the message says `Please check target database logs for more information`, read the Aurora PostgreSQL error log yourself: see `troubleshooting.md` → "DMS table error: exitwhy 1 / check target database logs". Aurora logs appear in CloudWatch Logs under `/aws/rds/cluster/<cluster-id>/postgresql` only when the `postgresql` log export is on.
 
 See `troubleshooting.md` → "Reading DMS Task Logs" for the full troubleshooting workflow, common error patterns, and resolution steps.
 

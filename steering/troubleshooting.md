@@ -107,29 +107,34 @@ nslookup -type=AAAA db.<project-ref>.supabase.co
 
 ### Reading DMS Task Logs
 
-DMS task logs are available in CloudWatch Logs under the log group `/aws/dms/tasks/<task-id>`. Key log signatures:
+DMS task logs are available in CloudWatch Logs under the log group `dms-tasks-<replication-instance-id>`, in a stream named `dms-task-<task-external-id>` (the external id is the last part of the task ARN). DMS assigns both names and you cannot set them ([logging task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.Logging.html)). Key log signatures:
 
 - `]E:` — Error messages (critical, usually cause task failure)
 - `]W:` — Warning messages (may indicate data issues but task continues)
 - `]I:` — Informational messages (normal operation)
 
 **Troubleshooting workflow**:
+
 1. Check the DMS task status in the console or via CLI:
+
    ```bash
    aws dms describe-replication-tasks \
      --filters Name=replication-task-id,Values=<task-id> \
      --region <region> \
      --query "ReplicationTasks[0].{Status:Status,StopReason:StopReason,LastError:ReplicationTaskStats}"
    ```
+
 2. Search CloudWatch Logs for errors:
+
    ```bash
    aws logs filter-log-events \
-     --log-group-name /aws/dms/tasks/<task-id> \
+     --log-group-name dms-tasks-<replication-instance-id> \
      --filter-pattern "]E:" \
      --region <region> \
      --query "events[*].message" --output text
    ```
-3. Correlate DMS errors with target database logs by timestamp — Aurora PostgreSQL logs are in CloudWatch under `/aws/rds/cluster/<cluster-id>/postgresql`
+
+3. Correlate DMS errors with target database logs by timestamp. When the DMS message points to the target database logs, follow [DMS table error: exitwhy 1 / check target database logs](#dms-table-error-exitwhy-1--check-target-database-logs)
 4. Common DMS error patterns:
    - `Cannot find or open table` — table doesn't exist on target; check schema migration
    - `No primary key` — CDC cannot replicate UPDATE/DELETE without a PK; add PK or use full load only
@@ -145,6 +150,38 @@ DMS task logs are available in CloudWatch Logs under the log group `/aws/dms/tas
 2. For target endpoints (Aurora): verify the DMS replication instance security group can reach Aurora on port 5432
 3. Verify credentials are correct — test with psql from an EC2 instance in the same VPC
 4. Check that the DMS replication instance is in the correct VPC and subnet group
+
+### DMS table error: exitwhy 1 / check target database logs
+
+**Symptom**: a table shows `Table error` in `describe-table-statistics` and the DMS task log has only lines like `Command failed to load data with exit error code 0 and exitwhy 1. Please check target database logs for more information.` and `Failed to load data from csv file.` The DMS log does not name the cause anywhere in the failure window. The cause is in the target database log.
+
+Do this lookup yourself. Do not ask the user to read the logs.
+
+1. Read the `]E:` and `]W:` lines from the task log group `dms-tasks-<replication-instance-id>` (see "Reading DMS Task Logs" above). Note the failure time and the table name.
+2. List the target error log files, newest last, and pick the one that covers the failure time. `<writer>` is the writer instance of the Aurora cluster. `LastWritten` is in epoch milliseconds:
+
+   ```bash
+   aws rds describe-db-log-files --db-instance-identifier <writer> --filename-contains error/postgresql --query "DescribeDBLogFiles[].[LogFileName,LastWritten,Size]" --output text --region <region>
+   ```
+
+3. Download that file and keep the error lines. Without a starting marker the API returns at most the 10000 most recent lines, and a marker of `0` starts at the beginning of the file ([DownloadDBLogFilePortion](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DownloadDBLogFilePortion.html)). The CLI passes `--starting-token 0` as that marker. The CLI page ([download-db-log-file-portion](https://docs.aws.amazon.com/cli/latest/reference/rds/download-db-log-file-portion.html)) describes the pagination token. AWS recommends publishing the logs to CloudWatch for large reads:
+
+   ```bash
+   aws rds download-db-log-file-portion --db-instance-identifier <writer> --log-file-name <file> --starting-token 0 --output text --region <region> | grep -E "ERROR:|DETAIL:"
+   ```
+
+   Look at the `ERROR:` and `DETAIL:` lines that name the target database and the table.
+
+Aurora PostgreSQL rotates the log every 60 minutes by default, and the file name pattern follows the `log_filename` parameter, so a failure near an hour boundary can sit in two files ([log file rotation](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_LogAccess.Concepts.PostgreSQL.overview.parameter-groups.html)). The log download API uses resources on the database instance, so AWS recommends publishing the logs to CloudWatch Logs and reading them there. Aurora PostgreSQL can export the `postgresql` log type to the log group `/aws/rds/cluster/<cluster-id>/postgresql` ([publishing to CloudWatch Logs](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.CloudWatch.html)). Turning the export on is a cluster change (`aws rds modify-db-cluster --cloudwatch-logs-export-configuration` with `EnableLogTypes`), so ask first. It publishes from that point on and does not backfill.
+
+Map the cause:
+
+| Target log line | Cause | Fix |
+| --------------- | ----- | --- |
+| `duplicate key value violates unique constraint` | The target is not empty. A `DO_NOTHING` load found rows from an earlier run. | [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run) |
+| `violates foreign key constraint` | Load order, or the foreign key bypass is missing. | Check `AfterConnectScript` on the target endpoint (Mobilize Decision 6) |
+| `cannot truncate a table referenced in a foreign key constraint` | `TRUNCATE_BEFORE_LOAD` on a preloaded schema. | Mobilize Decision 5: `DO_NOTHING` on an empty target |
+| `invalid input syntax for type` or `is of type ... but expression is of type` | Type mapping. | Compare the column types on both sides and fix the mapping |
 
 ### DMS Full Load + CDC Foreign Key Handling
 
@@ -277,6 +314,22 @@ aws rds modify-db-cluster-parameter-group \
 ```
 
 This avoids the cascade but requires you to truncate tables in reverse dependency order (children before parents).
+
+### Reload after a failed or partial run
+
+Use this recipe after any failed, stopped or partial full load, and whenever you need to load every table again. It worked in one test run. Follow the order. Poll the status calls at intervals (30 seconds or more), not in a tight loop.
+
+1. Stop the task: `aws dms stop-replication-task --replication-task-arn <task-arn>`. Wait until `describe-replication-tasks` shows `stopped`. In one run this took 1 to 2 minutes.
+2. Only if task settings change: `aws dms modify-replication-task` (the task must be `stopped`). Wait for the status to return to `stopped` after `modifying`.
+3. On the target, run `TRUNCATE ... CASCADE` on every task table (the list is in the table mapping), then check that every count is 0. `CASCADE` empties dependent tables too, so the list must cover all of them.
+4. If you changed an endpoint, run `aws dms test-connection` for it and wait until `describe-connections` shows `successful`. Editing an endpoint invalidates its earlier test, and `start-replication-task` fails with `InvalidResourceStateFault` until the test is `successful`.
+5. Clear old validation failures (see the note below), then start: `aws dms start-replication-task --replication-task-arn <task-arn> --start-replication-task-type reload-target`.
+6. Wait until `describe-table-statistics` shows `Table completed` for every table. A table in `Table error` goes back to [DMS table error: exitwhy 1 / check target database logs](#dms-table-error-exitwhy-1--check-target-database-logs).
+7. Verify exact counts and checksums against the source (`count(*)` and `md5(string_agg(x::text, ',' ORDER BY pk))` per table, session time zone UTC on both sides). Statistics-view estimates are not valid counts.
+
+**The validation failures table keeps old rows.** `reload-target` and truncating the data tables do not clear `awsdms_validation_failures_v1`. Rows from an earlier run stay. Before a reload, either filter by `"FAILURE_TIME"` when you read it, or delete only this task's rows with `DELETE FROM <control-schema>.<failures-table> WHERE "TASK_NAME" = '<task-external-id>'` (the last part of the task ARN). The value DMS stores in `"TASK_NAME"` was not verified, so run `SELECT DISTINCT "TASK_NAME" FROM <control-schema>.<failures-table>` first, use the value it shows, and check the number of deleted rows. Truncating a `_v1` table is safe only when no other task validates against the same target database. Never drop or truncate a `awsdms_validation_failures_v2` table: it is shared by every task with validation on the target. The control schema is a task setting, so find it first; the queries (quoted uppercase column names, `FAILURE_TIME` ordering and the grouped summary) are in [`03-migrate-phase.md` Path 3 Step 4](03-migrate-phase.md#step-4-monitor-dms-validation).
+
+**What this recipe does not show.** The full-load test that produced it covered the full load only. The CDC insert, update and delete counters were not exercised in that test, so nothing here claims that CDC was verified. A later cutover rehearsal saw CDC changes apply on one run; it is an [observation](03-migrate-phase.md#cutover-rehearsal-on-a-dms-loaded-target-observed-on-one-run), not a verification.
 
 ## Aurora Data API Errors
 
