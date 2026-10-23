@@ -226,11 +226,15 @@ Reference: [AWS DMS — Using PostgreSQL as a target](https://docs.aws.amazon.co
 
 Set the `session_replication_role` parameter to `replica` on the DMS target endpoint. This deactivates foreign key triggers during full load so DMS can load tables in any order without FK violations.
 
-You can set this via the DMS endpoint Extra Connection Attribute (ECA):
+Set it as `AfterConnectScript` in the target endpoint's `PostgreSQLSettings`, in a JSON file passed with `--postgre-sql-settings file://target-settings.json`. The AWS CLI shorthand syntax rejects the single quotes, so do not write it inline. The full endpoint command is Step 5 of "AWS DMS Setup (Fallback Path)" in `02-mobilize-phase.md`. The member to add next to the secret members:
 
+```json
+{
+  "AfterConnectScript": "SET session_replication_role = 'replica';"
+}
 ```
-AfterConnectScript=SET session_replication_role = 'replica'
-```
+
+On an endpoint that already exists, use `aws dms modify-endpoint` with the same file, then run `aws dms test-connection` again before you start the task.
 
 Or set it via the Aurora/RDS custom parameter group before starting the DMS task. This is the less preferred way: a parameter group value affects every session, including the application, so use it only if you want triggers and FK checks off for all sessions, and set it back to `origin` afterwards:
 

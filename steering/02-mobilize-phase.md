@@ -329,7 +329,7 @@ Decision 6 (foreign key bypass) is separate and applies together with `DO_NOTHIN
 Does the target schema have foreign keys?
 ├── NO → No special handling needed
 └── YES
-    ├── Option A (STRONGLY recommended): session_replication_role = 'replica' via DMS target endpoint ECA
+    ├── Option A (STRONGLY recommended): session_replication_role = 'replica' via the DMS target endpoint `AfterConnectScript`
     │   ├── Add to target endpoint PostgreSQLSettings when CREATING the endpoint:
     │   │   "AfterConnectScript": "SET session_replication_role = 'replica';"
     │   ├── Bypasses FK checks, triggers, and rules during the DMS session
@@ -343,24 +343,24 @@ Does the target schema have foreign keys?
         └── Only use if session_replication_role is not available
 ```
 
-**Implementation — add AfterConnectScript to target endpoint JSON:**
+**Implementation — add AfterConnectScript to the target endpoint settings (the complete command is Step 5 of "AWS DMS Setup (Fallback Path)" below):**
 
 ```json
 {
-  "EndpointIdentifier": "dms-ep-target-<name>",
+  "EndpointIdentifier": "dms-target-<project-name>",
   "EndpointType": "target",
-  "EngineName": "postgres",
+  "EngineName": "aurora-postgresql",
   "DatabaseName": "<database>",
   "SslMode": "require",
   "PostgreSQLSettings": {
     "SecretsManagerSecretId": "<target-secret-arn>",
-    "SecretsManagerAccessRoleArn": "<dms-role-arn>",
+    "SecretsManagerAccessRoleArn": "<dms-secrets-role-arn>",
     "AfterConnectScript": "SET session_replication_role = 'replica';"
   }
 }
 ```
 
-Note: `ALTER SYSTEM` is not allowed on RDS/Aurora — use the parameter group for `session_replication_role` if you need it cluster-wide. The DMS ECA approach is session-scoped and preferred.
+Note: `ALTER SYSTEM` is not allowed on RDS/Aurora — use the parameter group for `session_replication_role` if you need it cluster-wide. The `AfterConnectScript` approach is session-scoped and preferred.
 
 ### Decision 7: Index and Constraint Creation Timing (Reference)
 
