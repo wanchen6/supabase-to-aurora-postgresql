@@ -35,16 +35,16 @@ If none of these apply — your workload is small, no strict security or complia
 1. Verify the Supabase MCP server is connected (Kiro MCP Servers panel). The Aurora PostgreSQL MCP server is optional
 2. Open a chat and say: *"I want to migrate my Supabase database to Aurora PostgreSQL"*
 3. The agent verifies connectivity, then walks you through a 4-step intake (source details, app details, target proposal, plan confirmation)
-4. After you confirm the plan, the agent executes — you only confirm once more before the live cutover
+4. After you confirm the plan, the agent asks before each write and confirms with you again before the live cutover
 
 ## Migration Paths
 
 | Path | When | Downtime |
 | ---- | ---- | -------- |
-| `pg_dump` / `pg_restore` | Database < 100 GB, downtime acceptable | Yes |
-| Native logical replication | Zero-downtime, all tables have PKs, source has IPv4 | Near-zero |
-| AWS DMS with CDC | IPv6-only source, tables without PKs, or built-in validation needed | Near-zero |
-| Hybrid | Mixed requirements | Near-zero + brief window |
+| `pg_dump` / `pg_restore` | Database < 100 GB, downtime acceptable | Hours |
+| Native logical replication | Zero-downtime, all tables have PKs, source has IPv4 | Minutes (cutover only) |
+| AWS DMS with CDC | IPv6-only source, tables without PKs, or built-in validation needed | Minutes (cutover only) |
+| Hybrid | Mixed requirements | Minutes + brief window |
 
 > **IPv6 note**: Supabase endpoints are often IPv6-only. For an online migration from an IPv6-only source the verified route is AWS DMS in dual-stack mode with CDC. A direct subscription from Aurora to an IPv6-only publisher is not yet validated. The agent detects the source address type and routes through DMS, the IPv4 add-on path, or a bastion.
 
