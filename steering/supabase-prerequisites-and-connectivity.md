@@ -284,7 +284,7 @@ aws dms modify-replication-instance \
 If the DMS instance cannot resolve the Supabase host, verify:
 - The VPC has an IPv6 CIDR block assigned
 - The subnet has IPv6 CIDR allocation
-- The route table has routes for IPv6 traffic (`::/0` via internet gateway or egress-only internet gateway)
+- The route table of the DMS instance's public subnets sends `::/0` (and `0.0.0.0/0`) to an internet gateway, as in Steps 2 and 3b of the DMS setup in `02-mobilize-phase.md`. The internet gateway is for the publicly accessible DMS instance. An egress-only internet gateway is for private resources that only need outbound IPv6, such as a bastion in a private subnet (see the note below); it does not serve the DMS instance
 
 ### Online Migration from IPv6-Only Supabase Sources
 
