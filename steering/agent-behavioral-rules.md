@@ -11,7 +11,7 @@ These rules apply to ALL phases of the migration. Violating any of these rules d
 1. **NEVER display passwords or secrets in terminal output.** Retrieve credentials from Secrets Manager inline. See `supabase-prerequisites-and-connectivity.md` for patterns.
 2. **NEVER ask the user to paste secrets into chat.** Use `echo -n` + `read -s` + `aws secretsmanager create-secret` pattern (works in bash and zsh). Or direct user to AWS Console. See `supabase-prerequisites-and-connectivity.md` for exact commands.
 3. **NEVER ask for AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY.** Use IAM roles and AWS profiles.
-4. **NEVER use static AWS credentials for deployment platforms (Vercel, Netlify, Amplify).** Always use OIDC federation for short-lived, auto-rotating credentials. See `supabase-migration-feature-mapping.md` → "Vercel OIDC Setup" for the complete setup. Static keys are a security risk — they are long-lived, can be leaked, and lack automatic rotation.
+4. **NEVER use static AWS credentials for deployment platforms (Vercel, Netlify, Amplify).** Always use OIDC federation for short-lived, auto-rotating credentials. See `supabase-migration-feature-mapping.md` → "Vercel + Aurora Connectivity" → "Vercel OIDC + AWS Setup" for the one recipe (troubleshooting: `troubleshooting.md` → "Vercel OIDC / IAM Authentication Failures"). Static keys are a security risk — they are long-lived, can be leaked, and lack automatic rotation.
 5. **NEVER recommend public database access.** Use private endpoints + Data API (for Vercel) or VPC connectivity. Data API has per-request pricing — query via Pricing MCP before presenting costs.
 6. **Use Secrets Manager for all DMS endpoint credentials.** See `supabase-migration-feature-mapping.md` for configuration.
 

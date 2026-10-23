@@ -65,7 +65,7 @@ Follow Decision 0-11 in `02-mobilize-phase.md`.
 
 **Before Step 0**: read `agent-behavioral-rules.md` now (call `readSteering` with `steeringFile="agent-behavioral-rules.md"`). All mandatory security, user interaction, MCP usage, and phase execution rules are there. Do not skip this.
 
-**CRITICAL security rule enforced here**: NEVER ask the user for `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` for Vercel deployments. Always use **Vercel OIDC federation** for Aurora access — it provides short-lived credentials automatically with no static keys. See `supabase-migration-feature-mapping.md` → "Vercel + Aurora Connectivity" for the complete OIDC setup. If Vercel OIDC is not feasible (e.g., Vercel Free plan without OIDC enabled), use Aurora Data API with IAM role — still no static keys.
+**CRITICAL security rule enforced here**: NEVER ask the user for `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` for Vercel deployments. Always use **Vercel OIDC federation** for Aurora access — it provides short-lived credentials automatically with no static keys. See `supabase-migration-feature-mapping.md` → "Vercel + Aurora Connectivity" → "Vercel OIDC + AWS Setup" for the one OIDC recipe. If OIDC federation cannot be enabled for the project, tell the user and ask how to proceed; do not fall back to static keys.
 
 ## Getting Started — MANDATORY Intake Flow
 

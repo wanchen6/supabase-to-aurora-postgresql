@@ -410,42 +410,46 @@ Option A is preferred because it preserves index usage on the `uuid` column. Opt
 
 **Symptom**: `InvalidIdentityTokenException` or `OpenIDConnect provider's HTTPS certificate doesn't match configured thumbprint` when using Vercel OIDC with AWS.
 
-**Root Cause**: The AWS IAM OIDC provider for Vercel is not configured correctly, or the trust policy doesn't match the Vercel project/team.
+**Root Cause**: The AWS IAM OIDC provider for Vercel is not configured correctly, or the trust policy doesn't match the Vercel project/team, or the deployment was built before the variables were set.
 
-**Resolution**:
-1. Create the OIDC provider in IAM (if not already done):
+The recipe is in `supabase-migration-feature-mapping.md` → "Vercel + Aurora Connectivity" → "Vercel OIDC + AWS Setup". It is the only OIDC recipe in the power. Check these in order:
+
+1. **Issuer mode and provider.** Read the existing providers (`aws iam list-open-id-connect-providers`). The provider URL must match the issuer mode shown in the Vercel project (Settings → Security): `https://oidc.vercel.com/<team-slug>` for Team, `https://oidc.vercel.com` for Global. Its audience must include `https://vercel.com/<team-slug>`.
+2. **Thumbprint.** If AWS asks for a thumbprint or reports a thumbprint mismatch, compute the current one. It can change, so do not reuse an old value:
+
    ```bash
-   aws iam create-open-id-connect-provider \
-     --url https://oidc.vercel.com \
-     --client-id-list https://vercel.com/<team-slug> \
-     --thumbprint-list <thumbprint>
-   ```
-2. Get the correct thumbprint — this changes periodically. Use the AWS CLI to fetch it:
-   ```bash
-   # Get the OIDC provider thumbprint
+   # Get the OIDC provider thumbprint (Global issuer host shown; for Team mode use the same host)
    openssl s_client -servername oidc.vercel.com -showcerts -connect oidc.vercel.com:443 </dev/null 2>/dev/null | \
      openssl x509 -fingerprint -noout | sed 's/://g' | cut -d= -f2 | tr '[:upper:]' '[:lower:]'
    ```
-3. Verify the IAM role trust policy matches the Vercel project:
+
+   If the thumbprint error persists, update the provider with the latest value:
+
+   ```bash
+   aws iam update-open-id-connect-provider-thumbprint \
+     --open-id-connect-provider-arn arn:aws:iam::<account-id>:oidc-provider/<provider-host-and-path> \
+     --thumbprint-list <new-thumbprint>
+   ```
+
+3. **Role trust policy.** The condition keys use the provider host as the prefix (`oidc.vercel.com/<team-slug>` for Team, `oidc.vercel.com` for Global). The `aud` must be `https://vercel.com/<team-slug>` and the `sub` must match `owner:<team-slug>:project:<project-name>:environment:<environment>`. A `sub` limited to `environment:production` makes preview deployments fail with an auth error, so use a `StringLike` wildcard (or list `production` and `preview`) when previews must work:
+
    ```json
    {
      "Effect": "Allow",
-     "Principal": { "Federated": "arn:aws:iam::<account-id>:oidc-provider/oidc.vercel.com" },
+     "Principal": { "Federated": "arn:aws:iam::<account-id>:oidc-provider/oidc.vercel.com/<team-slug>" },
      "Action": "sts:AssumeRoleWithWebIdentity",
      "Condition": {
        "StringEquals": {
-         "oidc.vercel.com:aud": "https://vercel.com/<team-slug>",
-         "oidc.vercel.com:sub": "owner:<team-slug>:project:<project-name>:environment:production"
+         "oidc.vercel.com/<team-slug>:aud": "https://vercel.com/<team-slug>"
+       },
+       "StringLike": {
+         "oidc.vercel.com/<team-slug>:sub": "owner:<team-slug>:project:<project-name>:environment:*"
        }
      }
    }
    ```
-4. If the thumbprint error persists, update the OIDC provider with the latest thumbprint:
-   ```bash
-   aws iam update-open-id-connect-provider-thumbprint \
-     --open-id-connect-provider-arn arn:aws:iam::<account-id>:oidc-provider/oidc.vercel.com \
-     --thumbprint-list <new-thumbprint>
-   ```
+
+4. **Variables and a new build.** `AWS_ROLE_ARN` and a pinned `AWS_REGION` must exist in the environment of the deployment (for a migration preview: branch-scoped Preview variables, added after the branch exists on the remote). After any variable change, trigger a new build, because a deployment that is already built keeps the old values.
 
 ### Vercel / Serverless Platform Cannot Connect to Private Aurora
 

@@ -57,7 +57,7 @@ If none of these apply — your workload is small, no restrict security or compl
 
 ## Vercel + Aurora Connectivity
 
-Vercel functions cannot reach a private Aurora endpoint directly. This power configures **Aurora Data API + Vercel OIDC** — no static AWS keys, no VPC configuration needed. The agent sets up the IAM OIDC provider, trust policy, and Vercel environment variables automatically.
+Vercel functions cannot reach a private Aurora endpoint directly. This power configures **Aurora Data API + Vercel OIDC** — no static AWS keys, no VPC configuration needed. The agent walks you through one recipe: it reads your existing IAM OIDC providers first and reuses a matching one, creates a dedicated role limited to the Aurora cluster and its secret, and sets `AWS_ROLE_ARN` and a pinned `AWS_REGION`. It asks before each write and does not use static AWS keys.
 
 ## Application Code Refactoring
 
@@ -129,5 +129,5 @@ supabase-to-apg-migration-power/
 - [Amazon Aurora PostgreSQL](https://aws.amazon.com/rds/aurora/postgresql-features/)
 - [AWS Database Migration Service](https://aws.amazon.com/dms/)
 - [Aurora Data API](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/data-api.html)
-- [Vercel OIDC Federation with AWS](https://vercel.com/docs/security/secure-backend-access/oidc/aws)
+- [Vercel OIDC Federation with AWS](https://vercel.com/docs/oidc/aws)
 - [Kiro Powers Documentation](https://kiro.dev/docs/powers/)
