@@ -1144,14 +1144,23 @@ aws dms create-endpoint \
   --endpoint-identifier dms-source-<project-name> \
   --endpoint-type source \
   --engine-name postgres \
-  --server-name <source-host> \
-  --port 5432 \
-  --username <source-user> \
-  --password <source-password> \
   --database-name <source-database> \
-  --extra-connection-attributes "<extra-connection-attributes>" \
+  --ssl-mode require \
+  --postgre-sql-settings file://source-settings.json \
+  --extra-connection-attributes "pluginName=<plugin>;heartbeatEnable=true;heartbeatFrequency=5;mapBooleanAsBoolean=true" \
   --region <aws-region>
 ```
+
+`<plugin>` is the value chosen in Decision 4 (`test_decoding` or `pglogical`). The command carries no `--server-name`, `--port`, `--username` or `--password`. `source-settings.json` holds only ARNs, never a password:
+
+```json
+{
+  "SecretsManagerSecretId": "<source-secret-arn>",
+  "SecretsManagerAccessRoleArn": "<dms-secrets-role-arn>"
+}
+```
+
+After any `aws dms modify-endpoint`, run Step 6 again for that endpoint (see Step 6).
 
 AWS DMS supports two logical decoding plugins: `test_decoding` and `pglogical`. If the `pglogical` extension is installed on the source database, DMS uses it by default. Otherwise, DMS uses `test_decoding`. You can override this behavior with the `pluginName` extra connection attribute.
 
@@ -1169,33 +1178,47 @@ Reference: [Comparison of test_decoding and pglogical plugins in Amazon Aurora P
 | Source Platform | `test_decoding` | `pglogical` | Recommended Plugin |
 | --------------- | --------------- | ----------- | ------------------ |
 | Supabase | Yes (built-in) | No (extension not available) | `test_decoding` |
-| Heroku | Yes (built-in) | Check plan/version | `test_decoding` (safe default) |
 | Neon | Yes (built-in) | Check plan/version | `test_decoding` (safe default) |
-| GCP Cloud SQL | Yes (built-in) | Yes (enable extension) | `pglogical` if not all tables are in CDC; `test_decoding` otherwise |
-| Azure Database | Yes (built-in) | Yes (enable extension) | `pglogical` if not all tables are in CDC; `test_decoding` otherwise |
 | RDS PostgreSQL | Yes (built-in) | Yes (9.6+) | `pglogical` if not all tables are in CDC; `test_decoding` otherwise |
 | Aurora PostgreSQL | Yes (built-in) | Yes (check extension availability for your version) | `pglogical` if not all tables are in CDC; `test_decoding` otherwise |
 | On-premises | Yes (built-in) | Yes (install extension) | `pglogical` if not all tables are in CDC; `test_decoding` otherwise |
 
 ### Extra Connection Attributes
 
-Set the `extra-connection-attributes` based on the chosen plugin:
+Set the `extra-connection-attributes` based on the chosen plugin (Decision 4):
 
 ```
-pluginName=test_decoding;heartbeatEnable=true;heartbeatFrequency=5;mapBooleanAsBoolean=true
+pluginName=<plugin>;heartbeatEnable=true;heartbeatFrequency=5;mapBooleanAsBoolean=true
 ```
 
-Or for pglogical:
-
-```
-pluginName=pglogical;heartbeatEnable=true;heartbeatFrequency=5;mapBooleanAsBoolean=true
-```
+`<plugin>` is `test_decoding` or `pglogical`.
 
 Key attributes:
+
 - `pluginName` — `test_decoding` or `pglogical` (see tables above for platform availability and recommendation)
 - `heartbeatEnable=true` — prevents replication slot WAL growth during idle periods
 - `heartbeatFrequency=5` — heartbeat every 5 minutes
 - `mapBooleanAsBoolean=true` — correct boolean type mapping (DMS defaults to `varchar(5)` without this). **Must be set on both source and target endpoints.**
+
+**Plugin spelling.** The plugin can be set in two places. Use one, not both.
+
+| Where | Spelling | Notes |
+| ----- | -------- | ----- |
+| Extra connection attribute string | `pluginName=test_decoding` (underscore) | Valid on an endpoint that uses a secret. The DMS task log showed the slot using `test_decoding` |
+| `PluginName` member of `PostgreSQLSettings` | `test-decoding` (hyphen) or `pglogical` | The API model lists `no-preference`, `test-decoding` and `pglogical`. The user guide table of PostgreSQL source settings lists `pglogical` and `test_decoding` |
+
+The steps in this power use the attribute string. If you move the plugin into `source-settings.json`, remove it from the attribute string and use the spelling the API accepts.
+
+### Step 4b: What DMS Writes to the Source
+
+The source is read-only for the agent, but the DMS task is not. When the task starts, DMS writes to the source database through the endpoint user. Tell the user at the consent step, before the task exists:
+
+- **Heartbeat table.** `heartbeatEnable=true` makes DMS create and update a heartbeat table in the schema set by `HeartbeatSchema` (default `public`). In the tested run it was `public.awsdms_heartbeat`. Its purpose is to keep the slot's `restart_lsn` moving ([PostgreSQL source endpoint settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Source.PostgreSQL.html)).
+- **DDL audit objects.** With `CaptureDdls` at its default of true, DMS creates DDL-capture artifacts when the task starts, in the schema set by `DdlArtifactsSchema` (default `public`). The same page names an audit table `awsdms_ddl_audit`, an event trigger `awsdms_intercept_ddl` and a function. In the tested run `public.awsdms_ddl_audit` appeared on the source.
+- **Privilege.** The endpoint user must be able to create these objects in the schema, and to use logical replication. For a self-managed source AWS lists a superuser for CDC. For an AWS-managed source it lists the `rds_superuser` and `rds_replication` roles. For a Supabase source the power uses the `postgres` role (`supabase-migration-strategy-reference.md`).
+- **Replication slot.** A full load plus CDC task holds a logical replication slot on the source while it exists. A slot that nothing reads keeps WAL on the source. The heartbeat runs only while a task is running, so a stopped task with its slot still in place can fill the source disk ([Why do I see high storage consumption on my source PostgreSQL database when I run an AWS DMS CDC task?](https://repost.aws/knowledge-center/dms-high-storage-consumption-postgresql)).
+
+The agent does not create, drop or edit any of these. DMS writes them, and the user drops them after cutover. The cleanup steps are in `03-migrate-phase.md` → "DMS Cleanup on the Source".
 
 ### Step 5: Create Target Endpoint
 
@@ -1204,18 +1227,30 @@ aws dms create-endpoint \
   --endpoint-identifier dms-target-<project-name> \
   --endpoint-type target \
   --engine-name aurora-postgresql \
-  --server-name <target-endpoint> \
-  --port 5432 \
-  --username postgres \
-  --password <target-password> \
   --database-name <database-name> \
+  --ssl-mode require \
+  --postgre-sql-settings file://target-settings.json \
   --extra-connection-attributes "mapBooleanAsBoolean=true" \
   --region <aws-region>
 ```
 
+`target-settings.json` holds the secret, the role and the foreign key bypass from Decision 6:
+
+```json
+{
+  "SecretsManagerSecretId": "<target-secret-arn>",
+  "SecretsManagerAccessRoleArn": "<dms-secrets-role-arn>",
+  "AfterConnectScript": "SET session_replication_role = 'replica';"
+}
+```
+
+Keep `AfterConnectScript` unless Decision 6 chose another foreign key bypass. Omit it only in that case. The script contains single quotes, and the AWS CLI shorthand syntax rejects it (`Error parsing parameter '--postgre-sql-settings': Expected: ',', received: '''`). Use the JSON file with `file://`.
+
 For RDS PostgreSQL targets, use `--engine-name postgres` instead of `aurora-postgresql`.
 
 > **Important**: `mapBooleanAsBoolean=true` must be set on **both** the source and target endpoints for it to take effect. Without it on both sides, DMS maps PostgreSQL `boolean` to `varchar(5)`.
+
+After any `aws dms modify-endpoint`, run Step 6 again for that endpoint (see Step 6).
 
 ### Step 6: Test Endpoint Connections
 
@@ -1231,7 +1266,30 @@ aws dms test-connection \
   --region <aws-region>
 ```
 
-Poll `describe-connections` until both show `Status: successful`. If a connection fails, check security groups, network ACLs, and credentials.
+Poll `describe-connections` until both show `Status: successful`:
+
+```bash
+aws dms describe-connections \
+  --filters Name=endpoint-arn,Values=<endpoint-arn> \
+  --query "Connections[0].[Status,LastFailureMessage]" --output text --region <aws-region>
+```
+
+If a connection fails, check security groups, network ACLs, and credentials. On an endpoint that uses a secret, suspect the secrets role first: its trust policy (Step 1b), the two secret ARNs in its permission policy, and whether the secret's password still matches the database user (rotation).
+
+**Editing an endpoint invalidates its connection test.** After `aws dms modify-endpoint`, `start-replication-task` fails with `InvalidResourceStateFault`: the connection test for the instance and the endpoint must be successful before the task starts. Run `test-connection` again for every modified endpoint and wait for `successful` before you start or reload a task.
+
+### What to expect (observed on one run)
+
+These times were observed on one run with `dms.t3.small`. They are not guarantees. Poll with `describe-*` calls at intervals of 30 seconds or more, never in a tight loop, and do not conclude that something is stuck before the times below have passed.
+
+| Step | Observed |
+| ---- | -------- |
+| Replication instance creation (`create-replication-instance` to `available`) | About 10 minutes |
+| `stop-replication-task` to status `stopped` | 1 to 2 minutes |
+| `modify-replication-task` | Needs a stopped task. The status passes through `modifying` |
+| Validation with `ValidationQueryCdcDelaySeconds` at 180 | The first validation states are `Pending validation` and `Pending records`. A mismatch showed up about 7 minutes after the load finished |
+
+The reload sequence (stop, truncate, reload, wait for table states) is in `troubleshooting.md` → "Reload after a failed or partial run".
 
 ## DMS Validation Setup
 

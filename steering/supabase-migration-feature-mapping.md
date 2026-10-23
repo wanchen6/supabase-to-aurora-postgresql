@@ -834,106 +834,33 @@ Reference: [re:Post — Is it possible to deploy AWS Amplify app in specific VPC
 
 ## Supabase DMS Configuration
 
-When using AWS DMS with a Supabase source:
+When using AWS DMS with a Supabase source, the commands live in one place: `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)". This section keeps the Supabase-specific reasons and points to the steps.
 
-### Source Endpoint Extra Connection Attributes
+### Source Endpoint Plugin
 
-```
-pluginName=test_decoding;
-```
+Use `pluginName=test_decoding` in the source endpoint's extra connection attributes (Step 4 of the DMS setup).
 
 Do NOT use `pglogical` — Supabase does not make the `pglogical` extension available. The `test_decoding` plugin is built into PostgreSQL and available on all Supabase instances. See the [AWS blog comparing test_decoding and pglogical](https://aws.amazon.com/blogs/database/comparison-of-test_decoding-and-pglogical-plugins-in-amazon-aurora-postgresql-for-data-migration-using-aws-dms/) for details on plugin differences.
 
 ### DMS Endpoint Credentials via Secrets Manager
 
-Store DMS endpoint credentials in AWS Secrets Manager instead of passing plaintext username/password. This is the recommended approach for production migrations.
+Store DMS endpoint credentials in AWS Secrets Manager instead of passing plaintext username/password. This is the recommended approach for production migrations. The steps are in the DMS setup section:
 
-**Create a secret for the Supabase source endpoint:**
+- **Step 1** creates the source and target secrets with the secure input pattern. Each secret holds `username`, `password`, `host` and `port`. For the Supabase source the host is `db.<project-ref>.supabase.co`. Never paste a password in chat or in a command.
+- **Step 1b** creates the IAM role that DMS uses to read the secrets (`SecretsManagerAccessRoleArn`): the trust policy for the DMS service principals and a permission policy limited to the two secrets.
+- **Steps 4 and 5** create the endpoints. The secret and the role go inside `--postgre-sql-settings` as `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn`, in a JSON file. `--secrets-manager-secret-id` and `--secrets-manager-access-role-arn` are not valid top-level flags, and the host and port stay in the secret, so the endpoint commands carry no `--server-name` or `--port`.
 
-**IMPORTANT**: Do NOT pass passwords as plaintext in CLI commands. Use the secure input pattern (works in both bash and zsh):
+For the Aurora target endpoint, ALWAYS include:
 
-```bash
-echo -n "Enter Supabase DB password: " && read -s DB_PASS && echo && \
-aws secretsmanager create-secret \
-  --name dms/supabase-source-endpoint \
-  --secret-string "{\"username\":\"postgres\",\"password\":\"$DB_PASS\",\"port\":5432,\"host\":\"db.<project-ref>.supabase.co\"}" \
-  --region <region> && \
-unset DB_PASS
-```
+- `--ssl-mode require` to enforce SSL for data in transit
+- `"AfterConnectScript": "SET session_replication_role = 'replica';"` in the target settings file, to bypass FK checks during DMS load (see Decision 6 in `02-mobilize-phase.md`, and Step 5 of the DMS setup)
 
-Alternative: Create the secret via the AWS Console (Secrets Manager → Store a new secret → Other type of secret) to avoid CLI entirely.
+### Heartbeat and Boolean Mapping
 
-**Create the DMS endpoint using Secrets Manager:**
+These are extra connection attributes on the endpoints (Steps 4 and 5 of the DMS setup), not task settings:
 
-```bash
-aws dms create-endpoint \
-  --endpoint-identifier supabase-source \
-  --endpoint-type source \
-  --engine-name postgres \
-  --database-name postgres \
-  --secrets-manager-secret-id arn:aws:secretsmanager:<region>:<account>:secret:dms/supabase-source-endpoint-<suffix> \
-  --secrets-manager-access-role-arn arn:aws:iam::<account>:role/<dms-secrets-role> \
-  --ssl-mode require \
-  --extra-connection-attributes "pluginName=test_decoding;" \
-  --region <region>
-```
-
-The IAM role (`dms-secrets-role`) needs `secretsmanager:GetSecretValue` permission on the secret ARN. DMS retrieves credentials at runtime — no plaintext passwords in endpoint configuration.
-
-**IMPORTANT — IAM trust policy**: The DMS role must trust BOTH the global and regional DMS service principals:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Service": ["dms.amazonaws.com", "dms.<region>.amazonaws.com"]},
-    "Action": "sts:AssumeRole"
-  }]
-}
-```
-
-**For the Aurora target endpoint** — use the same Secrets Manager pattern, and ALWAYS include:
-- `"SslMode": "require"` — enforce SSL for data in transit
-- `"AfterConnectScript": "SET session_replication_role = 'replica';"` — bypass FK checks during DMS load (see Decision 6 in `02-mobilize-phase.md`)
-
-Example target endpoint JSON:
-```json
-{
-  "EndpointIdentifier": "dms-ep-target-<name>",
-  "EndpointType": "target",
-  "EngineName": "postgres",
-  "DatabaseName": "<database>",
-  "SslMode": "require",
-  "PostgreSQLSettings": {
-    "SecretsManagerSecretId": "<target-secret-arn>",
-    "SecretsManagerAccessRoleArn": "<dms-role-arn>",
-    "AfterConnectScript": "SET session_replication_role = 'replica';"
-  }
-}
-```
-
-### Additional DMS Task Settings for Supabase
-
-```json
-{
-  "SourceEndpoint": {
-    "ExtraConnectionAttributes": "pluginName=test_decoding;"
-  },
-  "TaskSettings": {
-    "ChangeProcessingTuning": {
-      "HeartbeatEnable": true,
-      "HeartbeatFrequency": 5,
-      "HeartbeatSchema": "public"
-    },
-    "TargetMetadata": {
-      "MapBooleanAsBoolean": true
-    }
-  }
-}
-```
-
-- `HeartbeatEnable` — prevents replication slot from growing during idle periods
-- `MapBooleanAsBoolean` — ensures PostgreSQL `boolean` maps correctly (DMS defaults to `varchar(5)`)
+- `heartbeatEnable=true` prevents the replication slot from holding WAL during idle periods. DMS creates helper tables on the source for it (Step 4b)
+- `mapBooleanAsBoolean=true` ensures PostgreSQL `boolean` maps correctly (DMS defaults to `varchar(5)`). Set it on both the source and the target endpoint
 
 ## Supabase Cost Comparison
 
