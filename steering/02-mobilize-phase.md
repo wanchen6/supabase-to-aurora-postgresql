@@ -1515,7 +1515,7 @@ Choose 3–5 tables that represent:
 
 ```sql
 -- Exact row count and checksum per pilot table (run on both source and target; same session time zone on both)
--- Replace id with each table's primary key column. n_live_tup is not used here: it is an estimate.
+-- Replace id with each table's primary key column. n_live_tup is an estimate and is not used to decide anything here.
 SELECT 'pilot_table_1' AS tbl, count(*) AS exact_rows, md5(COALESCE(string_agg(t::text, ',' ORDER BY t.id), '')) AS checksum FROM public.pilot_table_1 t
 UNION ALL
 SELECT 'pilot_table_2', count(*), md5(COALESCE(string_agg(t::text, ',' ORDER BY t.id), '')) FROM public.pilot_table_2 t

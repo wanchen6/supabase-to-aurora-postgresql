@@ -268,7 +268,7 @@ For high-churn tables, tune autovacuum:
 
 ```sql
 -- Identify tables with high dead tuple counts
--- n_live_tup and n_dead_tup are estimates kept by autovacuum: a maintenance signal, not a row count, and not used to validate a migration
+-- n_live_tup and n_dead_tup are estimates kept by autovacuum: a maintenance signal, not a row count. They are not used to decide anything
 SELECT schemaname, relname, n_dead_tup, n_live_tup,
   round(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) AS dead_pct,
   last_autovacuum, last_autoanalyze

@@ -240,7 +240,7 @@ WHERE NOT bl.granted;
 ### Table Bloat Detection
 
 ```sql
--- n_live_tup and n_dead_tup are estimates kept by autovacuum: a maintenance signal, not a row count, and not used to validate a migration
+-- n_live_tup and n_dead_tup are estimates kept by autovacuum: a maintenance signal, not a row count. They are not used to decide anything
 SELECT schemaname, relname AS tablename,
   n_dead_tup, n_live_tup,
   round(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) AS dead_pct,
