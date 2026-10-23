@@ -69,7 +69,7 @@ These rules prevent the agent from skipping guidance that exists in the steering
 
    Only proceed with the non-recommended path after the user explicitly confirms.
 
-3. **Follow the migration path decision tree — do not skip it.** The decision tree in `supabase-migration-strategy-reference.md` says: "Try native PostgreSQL logical replication first. Use DMS as a fallback." This is not a suggestion — it is the default path. DMS should only be used when native replication fails or when built-in validation is needed for large databases (> 100 GB).
+3. **Follow the migration path decision tree — do not skip it.** The decision tree in `supabase-migration-strategy-reference.md` says: "Try native PostgreSQL logical replication first. Use DMS as a fallback." This is not a suggestion — it is the default path. DMS should only be used when native replication fails, when the source is IPv6-only (DMS dual-stack is the verified online route), or when built-in validation is needed for large databases (> 100 GB).
 
 4. **When errors occur, check logs BEFORE guessing.** Do not assume the root cause based on table names or patterns. Follow the troubleshooting workflow in `troubleshooting.md`:
    - Step 1: Check DMS task status and stop reason
