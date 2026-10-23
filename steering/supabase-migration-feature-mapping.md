@@ -56,7 +56,12 @@ Supabase installs several extensions. Classify each before migration:
 | `pg_graphql` | No — Supabase-specific | Replace with AWS AppSync or API Gateway + Lambda |
 | `pg_net` | No — Supabase-specific | Replace with AWS Lambda (HTTP calls from application layer) |
 | `pgjwt` | No — Supabase-specific | Replace with Amazon Cognito JWT validation or application-layer JWT handling |
+| `supabase_vault` | No — Supabase-specific | Replace with AWS Secrets Manager (or AWS KMS for encryption keys) |
+| `pgsodium` | No — Supabase-specific | Replace with AWS KMS or application-layer encryption |
+| `pg_jsonschema` | No — Supabase-specific | Validate JSON in the application layer, or with `CHECK` constraints |
 | `supautils` | No — Supabase-specific | Internal Supabase utility — no replacement needed (not used by application code) |
+
+The six Supabase-only extensions `supabase_vault`, `pg_graphql`, `pgsodium`, `pg_net`, `pg_jsonschema` and `pgjwt` were each absent on an Aurora PostgreSQL 17.6 cluster (observed on one run). Check twice: the AWS documentation at Assess, and `pg_available_extensions` on the cluster at Mobilize (see `02-mobilize-phase.md` → "Check extensions on the cluster"). The cluster wins.
 
 Use `list_extensions` via Supabase MCP to discover all installed extensions, then cross-reference with this table. For extensions not listed here, use AWS Knowledge MCP `search_documentation` with query `"Aurora PostgreSQL supported extensions"` to verify availability.
 

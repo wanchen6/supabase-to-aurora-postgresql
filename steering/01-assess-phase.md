@@ -252,7 +252,8 @@ Classify each extension into:
 
 - **Compatible with target**: pgcrypto, uuid-ossp, pg_stat_statements, postgis, pg_trgm, btree_gist, btree_gin, hstore, citext, intarray, ltree, tablefunc, unaccent, fuzzystrmatch, pg_buffercache
 - **Platform-specific (may not be available on target)**: varies by source platform — check target documentation
-- Use AWS Knowledge MCP `search_documentation` to verify extension availability on Aurora/RDS
+- Use AWS Knowledge MCP `search_documentation` to verify extension availability on Aurora/RDS ([Aurora PostgreSQL extension versions](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/AuroraPostgreSQL.Extensions.html))
+- This documentation check is the first of two. The second runs on the new cluster at Mobilize (`02-mobilize-phase.md` → "Check extensions on the cluster"), and the cluster decides if the two disagree
 
 ### Platform-Specific Feature Assessment
 

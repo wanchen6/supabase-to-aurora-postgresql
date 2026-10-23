@@ -523,6 +523,33 @@ Before provisioning, decide:
 
 Use AWS Pricing MCP to compare costs across instance types and capacity models for the target region.
 
+### Check extensions on the cluster
+
+Assess labels each extension from the AWS documentation. Once the cluster is available, and before any copy or schema step, ask the target which extensions it can install. Reading the catalog changes nothing. The cluster result overrides the documentation: if the two disagree, plan around the cluster.
+
+Data API form (the rows come back in `formattedRecords`; retry a `DatabaseResumingException` while the cluster resumes):
+
+```bash
+aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECRET_ARN" --database "$DB_NAME" --sql "SELECT name, default_version, installed_version FROM pg_available_extensions ORDER BY name" --format-records-as JSON
+```
+
+When the Data API is off, run the same query with `psql`. Hold the connection string in an environment variable and never echo it:
+
+```bash
+psql "$TARGET_DATABASE_URL" -c "SELECT name, default_version, installed_version FROM pg_available_extensions ORDER BY name;"
+```
+
+Compare the `name` column with every extension found at Assess:
+
+| Assess label | On the cluster | What to do |
+| ------------ | -------------- | ---------- |
+| Compatible | Listed | Keep it |
+| Compatible | Missing | Stop the copy for that extension. Relabel it unsupported, tell the user, and ask what to do: drop the usage, use a replacement, or choose another target |
+| Unsupported or needs review | Listed | Report it as a finding. Ask before adding it |
+| Unsupported or needs review | Missing | Confirm unsupported |
+
+If the check cannot run (the cluster does not answer, or neither the Data API nor `psql` works), stop and ask. Do not fall back to the Assess labels.
+
 ### Post-Provisioning Configuration
 
 After the cluster is available, configure the parameter group:
@@ -535,7 +562,7 @@ After the cluster is available, configure the parameter group:
 -- shared_preload_libraries = 'pg_stat_statements'
 ```
 
-Install required extensions on the target (based on the Assess phase extension audit):
+Install the extensions the schema needs, and only those that passed the cluster check (plus `pg_stat_statements` for tuning). The list below is an example, based on the Assess phase extension audit:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
@@ -544,7 +571,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Add other extensions identified in the Assess phase
 ```
 
-Use AWS Knowledge MCP `search_documentation` to verify extension availability on Aurora/RDS if unsure.
+Extension availability is decided by the cluster check above (`pg_available_extensions`), not by a documentation search at this point.
 
 ### Security Group Configuration
 
