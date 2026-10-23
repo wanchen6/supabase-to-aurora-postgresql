@@ -59,7 +59,7 @@ Follow Decision 0-11 in `02-mobilize-phase.md`.
 3. Say: *"I want to migrate my Supabase database to Aurora PostgreSQL"*
 4. The agent asks for your Supabase project URL, plan, and AWS region (Steps 0–3 gather the details)
 5. Review and confirm the migration plan including cost estimate (Step 4 confirms the plan)
-6. The agent executes each phase automatically — you only confirm once more before the live cutover
+6. The agent asks before each write and confirms with you again before the live cutover
 
 ## Agent Behavioral Rules
 
