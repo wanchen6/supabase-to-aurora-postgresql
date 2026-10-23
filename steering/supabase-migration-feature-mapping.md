@@ -627,23 +627,42 @@ aws rds enable-http-endpoint --resource-arn arn:aws:rds:<region>:<account>:clust
 
 #### Vercel OIDC + AWS Setup
 
-**Step 1: Enable OIDC in Vercel project**
-- Vercel Dashboard → Project → Settings → Security → Enable "Secure backend access with OIDC federation"
+This is the one OIDC recipe in the power. Other files point here. It follows the [Vercel: Connect to Amazon Web Services](https://vercel.com/docs/oidc/aws) page and the [Vercel OIDC overview](https://vercel.com/docs/oidc). Where this recipe adds a step that those pages do not contain (reading existing providers first, a dedicated role limited to one cluster), it says so.
 
-**Step 2: Create AWS OIDC Identity Provider**
+**Step 1: Enable OIDC in the Vercel project and read its issuer mode:**
 
-First, confirm your Vercel project ID — find it in the Vercel Dashboard → Project → Settings → General → "Project ID". Do NOT infer it from existing IAM resources. The project ID looks like `prj_xxxxxxxxxxxx`.
+- Vercel Dashboard → Project → Settings → Security → "Secure backend access with OIDC federation". The same section shows the issuer mode, Team or Global. The Vercel documentation marks Team as the recommended mode. Ask the user which mode the project shows, because the provider URL depends on it.
+- Ask for the team slug (the path segment of the Vercel team URL) and the project name (Project → Settings → General). Do NOT infer them from AWS resources.
+
+**Step 2: Read the existing providers first (read-only):**
+
+```bash
+aws iam list-open-id-connect-providers
+aws iam get-open-id-connect-provider --open-id-connect-provider-arn <provider-arn>
+```
+
+Look for a provider whose URL matches the issuer mode below and whose audiences include `https://vercel.com/<TEAM_SLUG>`. If one exists, show it to the user and reuse it. Do not create a duplicate. Read existing roles the same way (read-only) to spot a setup that can be reused, and show what you found for confirmation. (This step is the power's own safeguard; the Vercel page describes only creating the provider.)
+
+**Step 3: Create the AWS OIDC identity provider only if it is missing:**
+
+| Issuer mode | Provider URL | Audience |
+| ----------- | ------------ | -------- |
+| Team | `https://oidc.vercel.com/<TEAM_SLUG>` | `https://vercel.com/<TEAM_SLUG>` |
+| Global | `https://oidc.vercel.com` | `https://vercel.com/<TEAM_SLUG>` |
 
 ```bash
 aws iam create-open-id-connect-provider \
-  --url https://oidc.vercel.com \
-  --client-id-list "urn:vercel:project:<YOUR_VERCEL_PROJECT_ID>" \
-  --thumbprint-list "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
+  --url <provider-url> \
+  --client-id-list "https://vercel.com/<TEAM_SLUG>"
 ```
 
-**Step 3: Create IAM Role with trust policy**
+If the command asks for a thumbprint, compute it as shown in `troubleshooting.md` → "Vercel OIDC / IAM Authentication Failures". Do not paste a thumbprint from memory.
 
-Save as `trust-policy.json`. Use `StringLike` with a wildcard on the `sub` claim to allow all Vercel environments (production, preview, development) — not just production:
+The Vercel page says the token `aud` claim is `https://vercel.com/<TEAM_SLUG>` by default. A different audience, such as `sts.amazonaws.com`, can be requested with the `audience` option of `awsCredentialsProvider`. It must then be added to the provider's audiences and used in the `aud` condition of the trust policy.
+
+**Step 4: Create a role for the cluster with a trust policy:**
+
+Create a role dedicated to this cluster (for example `vercel-<cluster-id>-data-api`) instead of editing an older role. Save as `trust-policy.json`. The condition keys use the provider host without `https://` as the prefix: `oidc.vercel.com/<TEAM_SLUG>` for Team mode, `oidc.vercel.com` for Global mode. The Vercel page shows `StringEquals` on `aud` and a `sub` of the form `owner:<TEAM_SLUG>:project:<PROJECT_NAME>:environment:<environment>`, and a looser `StringLike` form with a wildcard. The example below uses the wildcard on the environment so that production and preview deployments both work. The example is for Team mode:
 
 ```json
 {
@@ -651,38 +670,32 @@ Save as `trust-policy.json`. Use `StringLike` with a wildcard on the `sub` claim
   "Statement": [{
     "Effect": "Allow",
     "Principal": {
-      "Federated": "arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/oidc.vercel.com"
+      "Federated": "arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/oidc.vercel.com/<TEAM_SLUG>"
     },
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": {
-        "oidc.vercel.com:aud": "urn:vercel:project:<VERCEL_PROJECT_ID>"
+        "oidc.vercel.com/<TEAM_SLUG>:aud": "https://vercel.com/<TEAM_SLUG>"
       },
       "StringLike": {
-        "oidc.vercel.com:sub": "owner:<VERCEL_TEAM_SLUG>:project:<VERCEL_PROJECT_NAME>:environment:*"
+        "oidc.vercel.com/<TEAM_SLUG>:sub": "owner:<TEAM_SLUG>:project:<VERCEL_PROJECT_NAME>:environment:*"
       }
     }
   }]
 }
 ```
 
-**Important**: The `environment:*` wildcard allows production, preview, and development environments. If you restrict to `environment:production` only, preview deployments (including v0 sandbox) will get OIDC auth failures even if the env vars are set.
+For Global mode, use `oidc-provider/oidc.vercel.com` in the principal and `oidc.vercel.com:aud` and `oidc.vercel.com:sub` as the condition keys.
+
+**Important**: The `environment:*` wildcard allows production, preview, and development environments. To exclude development, list `environment:production` and `environment:preview` instead. If you restrict to `environment:production` only, preview deployments (including v0 sandbox) will get OIDC auth failures even if the env vars are set.
 
 ```bash
 aws iam create-role \
-  --role-name vercel-aurora-data-api \
+  --role-name vercel-<cluster-id>-data-api \
   --assume-role-policy-document file://trust-policy.json
 ```
 
-To update an existing role's trust policy (if you already created it without the wildcard):
-
-```bash
-aws iam update-assume-role-policy \
-  --role-name vercel-aurora-data-api \
-  --policy-document file://trust-policy.json
-```
-
-**Step 4: Attach permissions policy**
+**Step 5: Attach a permissions policy limited to the cluster and its secret:**
 
 Save as `permissions-policy.json`:
 
@@ -709,26 +722,33 @@ Save as `permissions-policy.json`:
 
 ```bash
 aws iam put-role-policy \
-  --role-name vercel-aurora-data-api \
+  --role-name vercel-<cluster-id>-data-api \
   --policy-name AuroraDataAPIAccess \
   --policy-document file://permissions-policy.json
 ```
 
-**Step 5: Set Vercel environment variables (no secrets)**
-
-Set these in **all three environments**: Production, Preview, and Development. In the Vercel Dashboard → Project → Settings → Environment Variables, use the checkboxes to select all three, or use the CLI: `vercel env add <NAME> production preview development`.
+**Step 6: Set Vercel environment variables (no secrets):**
 
 | Variable | Value |
 | -------- | ----- |
-| `AWS_REGION` | Aurora cluster region (e.g., `us-east-1`) — pin this explicitly, Vercel auto-sets it to function region otherwise |
-| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/vercel-aurora-data-api` |
+| `AWS_REGION` | Aurora cluster region (e.g., `us-east-1`). Pin it explicitly: the Vercel page says Vercel sets `AWS_REGION` to the function's execution region, which can change with multi-region routing or failover |
+| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/vercel-<cluster-id>-data-api` (the Vercel page names this variable for the role ARN) |
 | `AURORA_CLUSTER_ARN` | `arn:aws:rds:<region>:<account>:cluster:<cluster-id>` |
 | `AURORA_SECRET_ARN` | ARN of the Secrets Manager secret containing Aurora credentials |
 | `AURORA_DATABASE` | Database name on the Aurora cluster |
 
-**Verify all three environments have the variables set** before deploying to a preview branch. Preview deployments use the Preview environment, not Production.
+Set the variables in the environment that will use Aurora. For a migration branch that is tested on a preview deployment, use branch-scoped Preview variables (next section) so that production and other previews keep their current values. Preview deployments use the Preview environment, not Production. After ANY variable change, trigger a new build: a variable change does not reach a deployment that is already built.
 
 No `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` needed in production.
+
+#### Preview Deployment with the Vercel CLI (observed on one run, CLI 65.0.0)
+
+The Vercel CLI documentation lists adding a variable for a specific environment and Git branch ([vercel env](https://vercel.com/docs/cli/env)). These points come from one preview rehearsal. They are observations, not guarantees, and the order matters:
+
+1. **Push the migration branch first.** `vercel env add <NAME> --environment preview --git-branch <branch>` failed with `Branch "<branch>" not found in the connected Git repository` until the branch existed on the remote. Then add the branch-scoped variables, then trigger a new build (a new commit or `vercel redeploy`). The first push had built with the old values.
+2. **CLI syntax.** In 65.x the flags are `--environment` and `--git-branch`. The positional environment arguments print a deprecation notice.
+3. **Check the existing scopes before you add.** A project can already carry Production, Preview and Development variables for an older Aurora target. A branch-scoped Preview variable overrides them for that branch only, so production and other previews are unchanged. Run `vercel env ls` (names and scopes only, values are masked) and tell the user which scopes exist.
+4. **Limit the trust for previews.** The role trust can be limited to `environment:preview`. Production traffic should not assume a role created for a test cluster.
 
 #### Application Code — Aurora Data API Client with OIDC
 
@@ -772,7 +792,7 @@ export async function query(sql: string, parameters?: any[]) {
 }
 ```
 
-Reference: [Vercel OIDC + AWS](https://examples.vercel.com/docs/oidc/aws) | [Vercel OIDC AWS Credentials Provider](https://www.npmjs.com/package/@vercel/oidc-aws-credentials-provider)
+Reference: [Vercel OIDC + AWS](https://vercel.com/docs/oidc/aws) | [Vercel OIDC AWS Credentials Provider](https://www.npmjs.com/package/@vercel/oidc-aws-credentials-provider)
 
 **Authentication**: Vercel OIDC provides short-lived credentials (minutes) that auto-rotate on every function invocation. No static keys, no manual rotation, full CloudTrail audit trail.
 
