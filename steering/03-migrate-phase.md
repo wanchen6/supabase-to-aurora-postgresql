@@ -142,7 +142,7 @@ Which rollback strategy was selected during Assess?
 Which validation method applies?
 ├── Using DMS for migration (Path 3)?
 │   └── YES → DMS in-task validation (EnableValidation: true)
-│       └── Monitor awsdms_validation_failures_v1 table on target
+│       └── Monitor the awsdms_validation_failures_v2 (or _v1) table on target (see Path 3 Step 4)
 ├── Using native replication or pg_dump (Path 1 or 2)?
 │   └── Database size?
 │       ├── < 10 GB → Row counts + spot-check sample rows
@@ -1020,7 +1020,7 @@ aws dms create-replication-task \
 Key settings:
 - `TargetTablePrepMode: DO_NOTHING` — don't modify target data, just validate
 - `EnableValidation: true` — run row-by-row comparison
-- Check results in `awsdms_validation_failures_v1` table on target
+- Check results in the `awsdms_validation_failures_v2` (or `_v1`) table on target (queries: Path 3 Step 4)
 
 ## Deliverables
 
