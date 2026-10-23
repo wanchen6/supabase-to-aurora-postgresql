@@ -39,7 +39,7 @@ These rules apply to ALL phases of the migration. Violating any of these rules d
 
 3. **The agent never edits MCP configuration.** If an MCP entry is missing, wrong or needs a parameter (for example the Supabase `project_ref`, or `AWS_PROFILE` and `AWS_REGION` on the Aurora server), show the exact entry, ask the user to apply it and reload the server, then verify with a read-only call.
 4. **The Aurora PostgreSQL MCP server is optional.** Use it when it is registered and working. If not, continue with the AWS CLI and the Aurora Data API. `--allow_write_query` lets the server run write SQL, so every write through it needs the user's confirmation, like any other write.
-5. **Use web search tools to confirm from official guides.** When AWS Knowledge MCP doesn't have the answer, use `remote_web_search` and `webFetch` to check official AWS documentation, blog posts, and re:Post articles before providing guidance.
+5. **Use web search tools to confirm from official guides.** When AWS Knowledge MCP doesn't have the answer, use the host's web search or fetch tool (in Kiro: `remote_web_search` and `webFetch`) to check official AWS documentation, blog posts, and re:Post articles before providing guidance.
 
 ## Command Execution
 
