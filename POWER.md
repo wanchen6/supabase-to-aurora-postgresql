@@ -151,7 +151,7 @@ Based on the source discovery results from Step 1, **propose a target configurat
 - **Cluster identifier** — derive from the application/project name
 - **Database name** — derive from app's logical database name; default to `postgres` if unclear — do NOT ask open-endedly
 - **Aurora PostgreSQL engine version** — match source PG version from Step 1
-- **Capacity model** — see `02-mobilize-phase.md` → Decision 6 for thresholds (Serverless v2 vs provisioned)
+- **Capacity model** — see `01-assess-phase.md` → Decision 6 (Instance Sizing) for the rule (Serverless v2 vs provisioned)
 
 For all other target configuration decisions (Multi-AZ, ACU range, encryption, backup retention), apply AWS best practices defaults and explain the reasoning. Only ask the user if they want to deviate.
 
