@@ -571,7 +571,7 @@ Query 4: Aurora Serverless v2 ACU pricing
 
 Query 5: DB Savings Plan pricing (applies to both provisioned and Serverless v2)
 → "Aurora PostgreSQL savings plan pricing <region>"
-   Note: DB Savings Plans offer 1-year or 3-year commitments with flexible instance changes
+   Note: DB Savings Plans offer a 1-year commitment with flexible instance changes
 
 Query 6: Storage and I/O pricing (same across all compute options)
 → "Aurora PostgreSQL storage I/O pricing <region>"
