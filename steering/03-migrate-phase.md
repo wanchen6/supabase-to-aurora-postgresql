@@ -800,7 +800,7 @@ aws dms stop-replication-task \
   --region <aws-region>
 ```
 
-The DMS logical replication slot and the `awsdms_` helper objects stay on the source after the task stops. Remove them after the stabilization period, following [DMS Cleanup on the Source](#dms-cleanup-on-the-source).
+The DMS logical replication slot and the `awsdms_` helper objects stay on the source after the task stops. A stopped task's slot keeps holding write-ahead log on the source, so if the source still takes writes, ask the user to drop the slot as soon as the task is stopped and the cutover is accepted. Remove the helper objects after the stabilization period. Both follow [DMS Cleanup on the Source](#dms-cleanup-on-the-source).
 
 **Step 4: Reset sequences on target**
 
@@ -1089,7 +1089,7 @@ After the stabilization period (typically 2–4 weeks of stable operation on Aur
 
 ### DMS Cleanup on the Source
 
-DMS writes helper objects to the source and holds a replication slot while the task exists ([Mobilize Step 4b](02-mobilize-phase.md#step-4b-what-dms-writes-to-the-source)). Remove them after the stabilization period, in this order:
+DMS writes helper objects to the source and holds a replication slot while the task exists ([Mobilize Step 4b](02-mobilize-phase.md#step-4b-what-dms-writes-to-the-source)). If the source still takes writes, drop the slot as soon as the task is stopped and the cutover is accepted, because a stopped task's slot keeps holding write-ahead log on the source. Remove the helper objects after the stabilization period. Order:
 
 1. Stop the task and wait for `stopped`, then delete it (`aws dms delete-replication-task --replication-task-arn <task-arn>`). Ask first.
 2. Find the slot with a read-only query. `active` is false once the task is stopped:
