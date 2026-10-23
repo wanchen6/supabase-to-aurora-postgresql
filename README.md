@@ -43,7 +43,7 @@ If none of these apply — your workload is small, no strict security or complia
 | ---- | ---- | -------- |
 | `pg_dump` / `pg_restore` | Database < 100 GB, downtime acceptable | Hours |
 | Native logical replication | Zero-downtime, all tables have PKs, source has IPv4 | Minutes (cutover only) |
-| AWS DMS with CDC | IPv6-only source, tables without PKs, or built-in validation needed | Minutes (cutover only) |
+| AWS DMS with CDC | IPv6-only source, or built-in validation needed (every table needs a primary key) | Minutes (cutover only) |
 | Hybrid | Mixed requirements | Minutes + brief window |
 
 > **IPv6 note**: Supabase endpoints are often IPv6-only. For an online migration from an IPv6-only source the verified route is AWS DMS in dual-stack mode with CDC. A direct subscription from Aurora to an IPv6-only publisher is not yet validated. The agent detects the source address type and routes through DMS, the IPv4 add-on path, or a bastion.

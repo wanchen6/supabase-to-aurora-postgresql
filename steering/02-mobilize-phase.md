@@ -1050,7 +1050,7 @@ If replication is active, the source will show a row in `pg_stat_replication` wi
 
 ## AWS DMS Setup (Fallback Path)
 
-Use DMS for tables where native replication doesn't work (no primary key, unsupported types), when the source is IPv6-only, or when built-in validation is needed.
+Use DMS for tables where native replication doesn't work (for example unsupported types), when the source is IPv6-only, or when built-in validation is needed. A table without a primary key is not a reason to use DMS: see "Tables Without Primary Keys" in `03-migrate-phase.md`.
 
 This section holds the only DMS create commands in the power. Other files state the rules and point here.
 
@@ -1310,7 +1310,7 @@ AWS DMS supports two logical decoding plugins: `test_decoding` and `pglogical`. 
 
 | Plugin | Advantages | Best For |
 | ------ | ---------- | -------- |
-| `test_decoding` | Built into PostgreSQL, no extension install needed. Captures entire row for UPDATE/DELETE (useful for tables without PKs). | Platforms where pglogical is unavailable (Supabase, Neon). Migrations where all tables are part of CDC. Tables without primary keys. |
+| `test_decoding` | Built into PostgreSQL, no extension install needed. Supports `REPLICA IDENTITY FULL` (`pglogical` does not), the documented workaround for a table without a primary key (see "Tables Without Primary Keys" in `03-migrate-phase.md`). | Platforms where pglogical is unavailable (Supabase, Neon). Migrations where all tables are part of CDC. Tables that use `REPLICA IDENTITY FULL`. |
 | `pglogical` | Filters non-CDC tables at the replication slot level — reduces WAL decoding overhead, network throughput, and DMS latency. | Migrations where only a subset of tables are part of CDC. Large databases with many non-migrated tables. Self-managed PostgreSQL, RDS PostgreSQL 9.6+, Aurora PostgreSQL (check extension availability for your version). |
 
 Reference: [Comparison of test_decoding and pglogical plugins in Amazon Aurora PostgreSQL for data migration using AWS DMS](https://aws.amazon.com/blogs/database/comparison-of-test_decoding-and-pglogical-plugins-in-amazon-aurora-postgresql-for-data-migration-using-aws-dms/)
@@ -1500,7 +1500,7 @@ Choose 3–5 tables that represent:
 - A table with foreign keys (to test dependency handling)
 - A table with special data types (JSONB, arrays, ENUM)
 - A table with RLS policies (if applicable)
-- A table without a primary key (to test the offline/DMS fallback path)
+- A table without a primary key (to test the offline path; DMS ignores UPDATE and DELETE for it during CDC)
 
 ### Pilot Execution Steps
 

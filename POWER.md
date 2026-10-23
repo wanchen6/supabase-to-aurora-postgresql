@@ -18,7 +18,7 @@ The power supports three migration paths:
 2. **Online (preferred)**: PostgreSQL native logical replication — zero-downtime CDC
 3. **Online (fallback)**: AWS DMS with CDC and built-in validation — for tables where native replication doesn't work
 
-**Rule of thumb for online migration**: Try native PostgreSQL logical replication first. If it doesn't work for a specific table (e.g., missing primary key, unsupported data type), use DMS for that table.
+**Rule of thumb for online migration**: Try native PostgreSQL logical replication first. If it doesn't work for a specific table (e.g., an unsupported data type), use DMS for that table. A table without a primary key is not solved by DMS: during CDC it ignores UPDATE and DELETE for such a table (see "Tables Without Primary Keys" in `03-migrate-phase.md`).
 
 The agent uses up to four MCP servers: Supabase MCP (OAuth-authenticated, read-only, for source database discovery), Aurora PostgreSQL MCP (pgwire + Secrets Manager, for target operations; optional, the AWS CLI and the Aurora Data API cover the same work), AWS Knowledge MCP (for documentation lookups), and AWS Pricing MCP (for cost analysis). The user only needs to provide details and confirm at critical decision points.
 

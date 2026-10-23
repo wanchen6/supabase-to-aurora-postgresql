@@ -445,7 +445,7 @@ Target: lag < 1 MB before proceeding to cutover.
 
 ## Path 3: Online Migration — AWS DMS with CDC
 
-Best for tables without primary keys (partial), when built-in validation is needed, or as a fallback for native replication failures.
+Best for an IPv6-only source, when built-in validation is needed, or as a fallback for native replication failures such as an unsupported data type. A table without a primary key is not a reason to choose DMS: see [Tables Without Primary Keys](#tables-without-primary-keys).
 
 > **Before you run any command**
 >
@@ -1151,9 +1151,13 @@ Do this before you decommission the source. An unused slot keeps WAL on the sour
 
 ### Tables Without Primary Keys
 
-- CDC performance is severely degraded for tables without a primary key. DMS can replicate UPDATEs/DELETEs if `REPLICA IDENTITY FULL` is set on the table, but this generates significantly more WAL and is not recommended for high-throughput tables
-- Preferred solutions: (1) add a primary key, (2) migrate these tables offline during cutover (pg_dump/pg_restore per table), or (3) set `REPLICA IDENTITY FULL` only for low-throughput tables
-- Long-term: add primary keys or unique constraints to these tables post-migration
+This is the one rule for tables without a primary key, used in every file of this guide. Per the AWS documentation, a captured table must have a primary key: for a table without one, AWS DMS ignores DELETE and UPDATE operations during CDC, and AWS does not recommend migrating such a table with DMS because further limitations apply, among them no data validation ([PostgreSQL as a DMS source: limitations](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Source.PostgreSQL.html)). DMS data validation needs a primary key or unique index, and a table without one shows the validation state `No primary key` ([DMS data validation](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Validating.html)). So DMS does not fix a table without a primary key. Choose one of these for each such table:
+
+1. Add a primary key before the migration. The user runs the DDL on the source. Preferred.
+2. Migrate the table offline during the cutover window (pg_dump/pg_restore per table), and verify it with exact `count(*)` and checksums.
+3. Set `REPLICA IDENTITY FULL` on the source table so the write-ahead log carries the old row. The documentation lists this as a workaround and advises it only after careful testing, because it generates extra log volume. It is supported with the `test_decoding` plugin and not with `pglogical`. The user runs the `ALTER TABLE` on the source. DMS validation still does not cover the table, so verify it with exact counts and checksums.
+
+Add primary keys or unique constraints to these tables after the migration as a long-term fix.
 
 ### ENUM Types Not Migrating (DMS)
 

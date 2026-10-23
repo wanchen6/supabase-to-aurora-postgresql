@@ -137,7 +137,7 @@ DMS task logs are available in CloudWatch Logs under the log group `dms-tasks-<r
 3. Correlate DMS errors with target database logs by timestamp. When the DMS message points to the target database logs, follow [DMS table error: exitwhy 1 / check target database logs](#dms-table-error-exitwhy-1--check-target-database-logs)
 4. Common DMS error patterns:
    - `Cannot find or open table` — table doesn't exist on target; check schema migration
-   - `No primary key` — CDC cannot replicate UPDATE/DELETE without a PK; add PK or use full load only
+   - `No primary key` — DMS cannot validate a table without a primary key or unique index, and during CDC it ignores UPDATE and DELETE for that table. Follow [Tables Without Primary Keys](03-migrate-phase.md#tables-without-primary-keys)
    - `Replication slot does not exist` — slot was dropped or never created; recreate on source
    - `ENUM type does not exist` — create ENUM types on target before starting DMS task
 
