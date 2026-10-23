@@ -62,7 +62,7 @@ dig AAAA db.<project-ref>.supabase.co +short
 
 Result determines online migration path:
 - **IPv4 available** → Prefer native logical replication (CREATE PUBLICATION + CREATE SUBSCRIPTION). Aurora connects outbound via NAT gateway to Supabase's IPv4 address.
-- **IPv6 only** → Native replication does NOT work (Aurora cannot make outbound IPv6 — confirmed limitation). Use DMS (publicly-accessible, dual-stack) for online migration, or pg_dump via bastion for offline.
+- **IPv6 only** → Online: DMS (publicly accessible, dual-stack) with CDC, or native replication once the IPv4 add-on and NAT provide an IPv4 route. A direct subscription from Aurora to an IPv6-only publisher is not yet validated. Offline: pg_dump via bastion. Steps: `supabase-prerequisites-and-connectivity.md` → "Online Migration from IPv6-Only Supabase Sources".
 
 Also check: Supabase network restrictions (API call), Supabase IPv4 add-on status.
 

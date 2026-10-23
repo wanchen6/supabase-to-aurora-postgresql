@@ -305,30 +305,56 @@ If the DMS instance cannot resolve the Supabase host, verify:
 - The subnet has IPv6 CIDR allocation
 - The route table has routes for IPv6 traffic (`::/0` via internet gateway or egress-only internet gateway)
 
-### Outbound IPv6 — Aurora Confirmed Limitation
+### Online Migration from IPv6-Only Supabase Sources
 
-**Aurora PostgreSQL CANNOT make outbound IPv6 connections** (via EIGW or IGW from private subnets).
+Supabase direct database hosts resolve to an IPv6 address only (AAAA record, no A record) unless the Supabase IPv4 add-on is enabled. Aurora PostgreSQL supports IPv6 (dual-stack networking). For online replication from an IPv6-only Supabase source, the route verified so far is **AWS DMS in dual-stack mode**: the DMS replication instance reaches the Supabase IPv6 endpoint and applies the changes to Aurora using logical replication (CDC). Native logical replication, where an Aurora `CREATE SUBSCRIPTION` connects out to the Supabase endpoint, is used when the source is reachable over IPv4. A direct subscription from Aurora to an IPv6-only publisher is not yet validated (see Verification status below).
 
-**Evidence (tested May 2026):** VPC flow logs show Aurora sends TCP SYN packets but no SYN-ACK returns, while an EC2 instance in the same subnet/route table/SG connects successfully. Tested with both EIGW and IGW routes — neither works for Aurora outbound IPv6.
+Lead the user through these steps for an IPv6-only source:
 
-**What works and what doesn't (IPv6-only Supabase):**
+0. Test IPv6 from the machine that runs the agent before offering a local `pg_dump`: `curl -6 -sS -m 5 -o /dev/null https://ipv6.google.com` (any HTTP response means IPv6 works; a connection error or timeout means this machine has no IPv6 route), and, for the source itself, `nc -6 -zv -w 5 db.<project-ref>.supabase.co 5432`. With no IPv6 route the offline copy cannot run from this machine. Offer (a) an EC2 bastion with IPv6 reached over SSM, or (b) for a very small database, reading through the Supabase connection (the MCP, read-only) and writing through the Aurora Data API.
+1. Confirm the source is IPv6-only (`dig AAAA` returns an address and `dig A` returns none) and whether the Supabase IPv4 add-on is already enabled.
+2. Pick the online route:
+   - Near-zero downtime: **DMS dual-stack with CDC**. Create the replication instance publicly accessible with `--network-type DUAL` (the one creation command is in `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)", Step 3b). About $6/week for the sample `dms.t3.small` instance (an estimate, compute only; check the live price for your Region; `02-mobilize-phase.md` Decision 0 Step 4 gives the source of the figure).
+   - Seconds of downtime acceptable: **`pg_dump` and `pg_restore` through an EC2 bastion** that has outbound IPv6 (cheapest, about $0.01).
+   - IPv4 add-on already enabled, or the user chooses to enable it: **native logical replication** over IPv4 with a NAT gateway (the simplest online option).
+3. Present the options with the cost table in `supabase-migration-strategy-reference.md` and record the user's choice in the migration notes.
+4. Describe the plan as DMS dual-stack (or the bastion or IPv4 add-on route). Build the online route around DMS dual-stack or the IPv4 add-on path. A direct Aurora subscription to an IPv6-only publisher stays out of the plan until the Verification status table below shows it validated.
 
-| Method | Works? | Why |
-|--------|--------|-----|
-| `CREATE SUBSCRIPTION` from Aurora | ❌ | Aurora can't reach IPv6 endpoints |
-| DMS (publicly-accessible, dual-stack) | ✅ | DMS has its own public IP |
-| EC2 bastion with IPv6 for pg_dump | ✅ | EC2 outbound IPv6 works normally |
+| Method | Use for IPv6-only Supabase? | Notes |
+| ------ | --------------------------- | ----- |
+| DMS (publicly accessible, dual-stack) | Yes, recommended for online migration | DMS has its own public IPv4 and IPv6 connectivity |
+| EC2 bastion with IPv6 for `pg_dump` | Yes, for a short downtime window | EC2 outbound IPv6 works normally |
+| Native logical replication (`CREATE SUBSCRIPTION` from Aurora) | After enabling the Supabase IPv4 add-on with NAT | Requires an IPv4 route to the source. Direct subscription to an IPv6-only publisher: see Verification status |
 
-**Agent decision logic for IPv6-only sources:**
-1. User wants near-zero downtime → recommend DMS (publicly-accessible, dual-stack, ~$3/week)
-2. User accepts seconds of downtime → recommend pg_dump via bastion (cheapest, ~$0.01)
-3. User already has IPv4 add-on → recommend native replication (simplest online option)
+#### Verification status
+
+What has been checked for an online migration from an IPv6-only Supabase source, and what has not. Use this table to choose the route. Change a row when a re-test gives a new result.
+
+| Route | Status | Evidence | Checked | Before you rely on it |
+| ----- | ------ | -------- | ------- | --------------------- |
+| DMS dual-stack, full load | Verified in a test run with the corrected settings | 7 tables loaded. Row counts and md5 checksums equal to the source, with the session time zone set to UTC on both sides. DMS validation reported Validated. Full load only | 2026-10 | Use as the online route. CDC apply is the next row |
+| DMS CDC apply | Verified by the user | Earlier end-to-end run by the user against an IPv6-only Supabase source. The latest full-load test run did not cover CDC. A later cutover rehearsal saw CDC changes apply on one run. That observation does not change this status | 2026-10 | Use as the online route. Check insert, update and delete counters on your run |
+| Native logical replication subscription from Aurora to an IPv6-only publisher | Not yet validated | Tested on an Aurora PostgreSQL 17.6 cluster. The worker connection timed out. Details are in the test notes below the table | 2026-10 | Re-test before relying on it. Until then use DMS dual-stack or the IPv4 add-on path |
+
+When a re-test succeeds, change the Status cell and record the date and engine version in Checked.
+
+**Test notes for the native route (Aurora PostgreSQL 17.6, 2026-10).** The cluster ran in a dual-stack VPC: subnets with IPv6 CIDR blocks, `::/0` through an active egress-only internet gateway, a security group and network ACL that allow IPv6 egress, cluster network type `DUAL`, and `rds.logical_replication = 1`. The Supabase host resolved to an AAAA address only. The subscription's apply worker logged `could not connect to the publisher ... port 5432 failed: Connection timed out` on every retry, and the publisher saw no connection. A control connection from a temporary Lambda function in the same subnets, security group and route table reached the same address on port 5432 in under 10 ms and received the PostgreSQL SSL reply `S`. So the network path and the Supabase side worked, and only the connection started by the Aurora logical replication worker timed out.
+
+**Re-test the native route** (the user runs the source-side steps, see "Operations Requiring Manual User Action"):
+
+- Networking: a DB subnet group with IPv6 subnets, a `::/0` route through an egress-only internet gateway, a security group and network ACL that allow IPv6 egress to port 5432, and cluster network type `DUAL` (`aws rds modify-db-cluster --network-type DUAL`, shown under "Aurora dual-stack mode").
+- Parameters: a custom cluster parameter group with `rds.logical_replication = 1` attached to the cluster, then a reboot of the writer so it takes effect.
+- Source: a publication and a replication role on the Supabase database, created by the user, and the replication slot, created before the subscription is enabled: `SELECT pg_create_logical_replication_slot('<slot>', 'pgoutput');` (the Subscribe bullet uses `connect = false` and `create_slot = false`, so Aurora does not create it).
+- Subscribe: on Aurora run `CREATE SUBSCRIPTION <name> CONNECTION '<conninfo>' PUBLICATION <pub> WITH (connect = false, create_slot = false, slot_name = '<slot>')`, then `ALTER SUBSCRIPTION <name> ENABLE` so the background worker makes the connection. Read the password from a secret and never paste it in chat.
+- Read the Aurora PostgreSQL log (`aws rds describe-db-log-files`, then `aws rds download-db-log-file-portion`) for the worker's message. A connection timeout means the route is still not validated. Another message, such as a slot or authentication message, shows the connection was made. Streaming means validated.
+- Optional control: from another resource in the same subnets and security group, such as a temporary Lambda function or EC2 instance, open a TCP connection to the Supabase host on port 5432 over IPv6 and expect a reply to the PostgreSQL SSL request (`S`). Delete the temporary resource afterwards.
+- Clean up: on Aurora run `ALTER SUBSCRIPTION <name> DISABLE;`, then `ALTER SUBSCRIPTION <name> SET (slot_name = NONE);`, then `DROP SUBSCRIPTION <name>;`. A plain `DROP SUBSCRIPTION` connects to the source to drop the slot, so it fails when the worker could not connect, which is the expected outcome of this re-test. After that the user runs `SELECT pg_drop_replication_slot('<slot>');`, `DROP PUBLICATION <pub>;` and `DROP ROLE <role>;` on the source. An unused slot keeps WAL on the source.
 
 **Note for EC2 bastions in private subnets**: If the bastion needs to reach Supabase's IPv6 endpoint, it needs either a public IPv6 address (public subnet + IGW) or an Egress-Only Internet Gateway (EIGW) route (`::/0 → eigw-xxx`). EIGW is free — create with `aws ec2 create-egress-only-internet-gateway --vpc-id <vpc-id>` and add the route to the subnet's route table.
 
 Reference: [Enable outbound IPv6 traffic using an egress-only internet gateway](https://docs.aws.amazon.com/vpc/latest/userguide/egress-only-internet-gateway.html)
 
-**Aurora dual-stack mode** (for inbound IPv6, not outbound): Enable if needed for DMS target connectivity:
+**Aurora dual-stack mode**: Enable if needed for DMS target connectivity:
 
 ```bash
 aws rds modify-db-cluster \

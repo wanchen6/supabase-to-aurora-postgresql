@@ -46,7 +46,7 @@ If none of these apply — your workload is small, no restrict security or compl
 | AWS DMS with CDC | IPv6-only source, tables without PKs, or built-in validation needed | Near-zero |
 | Hybrid | Mixed requirements | Near-zero + brief window |
 
-> **IPv6 note**: Supabase endpoints are often IPv6-only. Aurora cannot make outbound IPv6 connections (confirmed limitation). The agent detects this automatically and routes through DMS or a bastion.
+> **IPv6 note**: Supabase endpoints are often IPv6-only. For an online migration from an IPv6-only source the verified route is AWS DMS in dual-stack mode with CDC. A direct subscription from Aurora to an IPv6-only publisher is not yet validated. The agent detects the source address type and routes through DMS, the IPv4 add-on path, or a bastion.
 
 ## What the Agent Does
 

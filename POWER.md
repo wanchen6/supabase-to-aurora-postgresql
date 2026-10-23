@@ -50,7 +50,7 @@ Follow Decision 0-11 in `02-mobilize-phase.md`.
 | AWS DMS with CDC | Zero-downtime, IPv6-only source, or need validation | Infrastructure: `02-mobilize-phase.md` → AWS DMS Setup. Task execution: `03-migrate-phase.md` → Path 3 |
 | Hybrid | Mixed requirements | `03-migrate-phase.md` → Path 4 |
 
-**Key constraint**: Aurora cannot make outbound IPv6. See `supabase-prerequisites-and-connectivity.md` for connectivity options.
+**Key constraint**: Supabase direct hosts are often IPv6-only. For an online migration from an IPv6-only source the verified route is AWS DMS in dual-stack mode with CDC. A direct subscription from Aurora to an IPv6-only publisher is not yet validated (see the Verification status table in `supabase-prerequisites-and-connectivity.md`). Native replication works when the source is reachable over IPv4.
 
 ## Try It
 

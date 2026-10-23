@@ -93,7 +93,15 @@ nslookup -type=AAAA db.<project-ref>.supabase.co
 # If you see an AAAA record (e.g., 2a05:d014:...), the host is IPv6
 ```
 
-**Resolution**: Follow the complete IPv6 and dual-stack setup steps in `supabase-prerequisites-and-connectivity.md` → "IPv6 and Dual-Stack Connectivity (Preferred for Supabase)" and → "Aurora Outbound IPv6 — Confirmed Limitation".
+**Resolution**: Follow the complete IPv6 and dual-stack setup steps in `supabase-prerequisites-and-connectivity.md` → "IPv6 and Dual-Stack Connectivity (Preferred for Supabase)" and → "Online Migration from IPv6-Only Supabase Sources".
+
+### Subscription worker cannot connect to an IPv6-only publisher
+
+**Symptom**: An Aurora `CREATE SUBSCRIPTION` to an IPv6-only Supabase host stays enabled, but the Aurora PostgreSQL log shows `could not connect to the publisher ... port 5432 failed: Connection timed out` on every retry, and the Supabase side shows no connection.
+
+**First check**: Open a control connection from another resource in the same subnets, security group and route table, such as a temporary Lambda function or EC2 instance. A reply to the PostgreSQL SSL request (`S`) on port 5432 shows the network path and the Supabase side work, which narrows the question to the connection the subscription worker starts.
+
+**Route**: Use DMS in dual-stack mode with CDC, or the IPv4 add-on path, for the online migration. A direct subscription to an IPv6-only publisher is not yet validated. The Verification status table in `supabase-prerequisites-and-connectivity.md` (under "Online Migration from IPv6-Only Supabase Sources") has the evidence and the re-test steps.
 
 ## DMS-Specific Errors
 

@@ -53,7 +53,7 @@ These rules prevent the agent from skipping guidance that exists in the steering
    - Before Mobilize: read `02-mobilize-phase.md` → Decision 0 (Network Assessment) FIRST, then Decisions 1-11 as needed. Also read `supabase-migration-strategy-reference.md` for path selection.
    - Before Migrate: read `03-migrate-phase.md` (focus on: the selected Path, Cutover Procedure)
    - Before troubleshooting: read `troubleshooting.md` (match error to known pattern)
-   - For Supabase connectivity: read `supabase-prerequisites-and-connectivity.md` → "Aurora Outbound IPv6" section
+   - For Supabase connectivity: read `supabase-prerequisites-and-connectivity.md` → "Online Migration from IPv6-Only Supabase Sources" section
    - Before Modernize: read `04-modernize-phase.md`
    - Before troubleshooting any error: read `troubleshooting.md`
 
@@ -84,7 +84,7 @@ These rules prevent the agent from skipping guidance that exists in the steering
 
 6. **ALWAYS run a network assessment before creating Aurora, DMS, or any VPC resources.** Follow Decision 0 in `02-mobilize-phase.md`. This includes: detecting source IPv6/IPv4 status, assessing VPC subnets, calculating CIDR blocks, and presenting the plan to the user for approval. Never provision infrastructure without this assessment.
 
-7. **Aurora CANNOT make outbound IPv6 connections.** Do not attempt EIGW-based native replication from IPv6-only sources. This is a confirmed limitation (VPC flow logs show SYN packets leave Aurora's ENI but no SYN-ACK returns, while EC2 in the same subnet works). For online migration from IPv6-only sources, use DMS (publicly-accessible, dual-stack) or a bastion for pg_dump.
+7. **Plan the online route for an IPv6-only source around DMS dual-stack or the IPv4 add-on path.** A direct subscription from Aurora to an IPv6-only publisher is not yet validated (see the Verification status table in `supabase-prerequisites-and-connectivity.md`). Do not offer it as the plan. Re-test it only when the user asks, and the user runs the source-side steps. For a short downtime window, use a bastion for pg_dump.
 
 8. **ALWAYS create a migration branch before modifying application code.** Never modify the main/production branch directly during migration. Deploy the migration branch to a preview/staging environment for testing before cutover.
 
