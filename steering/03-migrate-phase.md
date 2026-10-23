@@ -441,7 +441,22 @@ Target: lag < 1 MB before proceeding to cutover.
 
 Best for tables without primary keys (partial), when built-in validation is needed, or as a fallback for native replication failures.
 
+> **Before you run any command**
+>
+> Record these four Mobilize decisions in the migration notes (see the Mobilize decision summary table in `02-mobilize-phase.md`):
+>
+> - Decision 1, schema method (Method A, B or C)
+> - Decision 4, plugin (`test_decoding` or `pglogical`)
+> - Decision 5, target table prep mode
+> - Decision 6, foreign key bypass
+>
+> If any of them is not recorded, stop and apply the Mobilize decisions first (Decisions 1, 4, 5 and 6 in `02-mobilize-phase.md`). Do not create the replication task until all four are recorded.
+>
+> The four rules: all four values are recorded with a reason for each; a preloaded schema (Method B) needs `DO_NOTHING`; a source with foreign keys needs a bypass; Method A cannot create foreign keys and needs `DROP_AND_CREATE`.
+
 ### Step 1: Create DMS Replication Task
+
+Fill `<target-prep-mode>` from the value recorded for [Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode). Preloaded schema (Method B): `DO_NOTHING`, and the target tables must be empty. Method A: `DROP_AND_CREATE`. Never write `TRUNCATE_BEFORE_LOAD` here for a preloaded schema: it fails on tables that foreign keys reference.
 
 ```bash
 aws dms create-replication-task \
@@ -471,7 +486,7 @@ aws dms create-replication-task \
       "LobMaxSize": 32768
     },
     "FullLoadSettings": {
-      "TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
+      "TargetTablePrepMode": "<target-prep-mode>",
       "CreatePkAfterFullLoad": false
     },
     "ValidationSettings": {
@@ -1055,10 +1070,10 @@ After the stabilization period (typically 2–4 weeks of stable operation on Aur
 
 ### Foreign Key Handling for DMS Full Load
 
-DMS loads each table one at a time during full load, but table order is not guaranteed. Foreign key constraints can cause failures if child rows arrive before parent rows. Two approaches:
+DMS loads each table one at a time during full load, but table order is not guaranteed. Foreign key constraints can cause failures if child rows arrive before parent rows. For a schema that was preloaded on the target, two settings apply together ([Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode) for the prep mode, [Decision 6](02-mobilize-phase.md#decision-6-foreign-key-handling-for-dms-full-load-reference) for the bypass):
 
 1. **Set `session_replication_role = 'replica'`** on the target (via DMS endpoint ECA `AfterConnectScript` or directly on Aurora) to deactivate FK checks and user triggers during the DMS session. When set via `AfterConnectScript`, this applies to both full load and CDC phases within the DMS session. Remove the `AfterConnectScript` only after migration cutover is complete and the application is writing directly to Aurora. See `02-mobilize-phase.md` → Decision 8 for trigger timing details.
-2. **Set `TargetTablePrepMode: DO_NOTHING`** in the DMS task to avoid DROP/TRUNCATE failures caused by PostgreSQL's FK failsafe mechanism.
+2. **Set `TargetTablePrepMode: DO_NOTHING`** in the DMS task, on an empty target, to avoid DROP/TRUNCATE failures caused by PostgreSQL's FK failsafe mechanism.
 
 For reload scenarios where `TRUNCATE` or `DROP` fails due to FK dependencies, use `TRUNCATE ... CASCADE` — but you MUST reload ALL cascaded tables, not just the one you truncated.
 

@@ -148,7 +148,7 @@ DMS task logs are available in CloudWatch Logs under the log group `/aws/dms/tas
 
 ### DMS Full Load + CDC Foreign Key Handling
 
-**Symptom**: DMS full load fails with foreign key constraint violations, or `TRUNCATE TABLE` / `DROP TABLE` fails with `cannot truncate a table referenced in a foreign key constraint`.
+**Symptom**: DMS full load fails with foreign key constraint violations, or `TRUNCATE TABLE` / `DROP TABLE` fails with `cannot truncate a table referenced in a foreign key constraint`. The prep mode rule is stated once, in Mobilize [Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode): a preloaded schema uses `DO_NOTHING` on an empty target. Read it first.
 
 **Root Cause**: DMS loads each table one at a time during full load, but table order is not guaranteed. If a child table's rows arrive before the parent table's rows, foreign key constraints cause the task to fail. PostgreSQL also has a failsafe mechanism that prevents truncation even when `session_replication_role` is set to `replica`.
 
@@ -159,11 +159,12 @@ Reference: [AWS DMS — Using PostgreSQL as a target](https://docs.aws.amazon.co
 Set the `session_replication_role` parameter to `replica` on the DMS target endpoint. This deactivates foreign key triggers during full load so DMS can load tables in any order without FK violations.
 
 You can set this via the DMS endpoint Extra Connection Attribute (ECA):
+
 ```
 AfterConnectScript=SET session_replication_role = 'replica'
 ```
 
-Or set it via the Aurora/RDS custom parameter group before starting the DMS task:
+Or set it via the Aurora/RDS custom parameter group before starting the DMS task. This is the less preferred way: a parameter group value affects every session, including the application, so use it only if you want triggers and FK checks off for all sessions, and set it back to `origin` afterwards:
 
 1. In the RDS console (or via CLI), modify the custom parameter group for your Aurora cluster
 2. Set `session_replication_role` = `replica`
@@ -187,6 +188,7 @@ aws rds modify-db-cluster-parameter-group \
 ```
 
 Then verify FK integrity:
+
 ```sql
 -- Check for orphaned rows (example for a specific FK relationship)
 SELECT child.id FROM child_table child
@@ -196,12 +198,7 @@ WHERE parent.id IS NULL;
 
 **Resolution — Method 2: Use `DO_NOTHING` target table preparation mode**
 
-If you set the DMS task's target table preparation mode to `DO_NOTHING`, DMS will not attempt to `DROP` or `TRUNCATE` target tables before loading. This avoids the PostgreSQL failsafe that blocks truncation of tables referenced by foreign keys — even when `session_replication_role` is set to `replica`.
-
-Use `DO_NOTHING` when:
-- Tables already exist on the target with the correct schema
-- You want to avoid any risk of FK-related DROP/TRUNCATE failures
-- You are reloading specific tables into an existing target
+If you set the DMS task's target table preparation mode to `DO_NOTHING`, DMS will not attempt to `DROP` or `TRUNCATE` target tables before loading. This avoids the PostgreSQL failsafe that blocks truncation of tables referenced by foreign keys, even when `session_replication_role` is set to `replica`. When to choose it is stated once in Mobilize [Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode).
 
 ```json
 "FullLoadSettings": {
@@ -209,11 +206,13 @@ Use `DO_NOTHING` when:
 }
 ```
 
-**Important**: If using `DO_NOTHING`, ensure the target tables are empty before starting the full load (or handle duplicates in your application logic).
+**Important**: `DO_NOTHING` keeps every row that is already there, so the target tables must be empty before the load starts. A non-empty target ends in `duplicate key` errors. Do not skip this check.
+
+**A failed first run leaves partial data.** A load that failed on the truncate step had already loaded some tables, and switching to `DO_NOTHING` and starting again made those tables fail with duplicate keys. After any failed or partial run: stop the task, run `TRUNCATE ... CASCADE` on every task table on the target, reload with `aws dms start-replication-task --start-replication-task-type reload-target`, and verify exact counts. The ordered recipe is [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run).
 
 ### DMS Truncate/Drop Cascade for Reload Scenarios
 
-**Symptom**: DMS task with `DROP_AND_CREATE` or `TRUNCATE_BEFORE_LOAD` target table prep mode fails because PostgreSQL cannot drop or truncate a table that is referenced by foreign key constraints from other tables.
+**Symptom**: DMS task with `DROP_AND_CREATE` (or with `TRUNCATE_BEFORE_LOAD`, which you should not use on tables that foreign keys reference) target table prep mode fails because PostgreSQL cannot drop or truncate a table that is referenced by foreign key constraints from other tables.
 
 **Root Cause**: PostgreSQL prevents `TRUNCATE` and `DROP` on tables that have dependent foreign keys from other tables. Even with `session_replication_role = 'replica'`, the failsafe mechanism blocks truncation of FK-referenced tables.
 
@@ -229,7 +228,9 @@ TRUNCATE TABLE parent_table CASCADE;
 **Critical**: When you use `CASCADE`, all related tables in the FK chain are also truncated. You MUST reload ALL cascaded tables — not just the one you intended to truncate. Otherwise those dependent tables will be empty.
 
 Steps for a clean reload:
+
 1. Identify all tables that will be affected by the cascade:
+
    ```sql
    -- Find all tables that reference a given table via FK
    SELECT DISTINCT tc.table_schema, tc.table_name
@@ -239,12 +240,15 @@ Steps for a clean reload:
    WHERE tc.constraint_type = 'FOREIGN KEY'
      AND ccu.table_name = 'parent_table';
    ```
+
 2. Run `TRUNCATE ... CASCADE` on the target:
+
    ```sql
    TRUNCATE TABLE parent_table CASCADE;
    ```
+
 3. Ensure the DMS task table mappings include ALL cascaded tables so they are all reloaded
-4. Restart the DMS task with `TargetTablePrepMode: DO_NOTHING` (since you already truncated manually)
+4. Reload with `TargetTablePrepMode: DO_NOTHING` (since you already truncated manually), following [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run)
 
 Alternatively, disable FK checks via the parameter group, truncate individually, then re-enable:
 

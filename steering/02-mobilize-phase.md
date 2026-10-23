@@ -296,26 +296,34 @@ Is DMS part of the migration? (from Assess Decision 5)
 
 ### Decision 5: DMS Target Table Preparation Mode
 
+This is the single statement of the rule. Other files link here. Record the value in the migration notes (the Mobilize decision summary table).
+
 ```
 Is DMS part of the migration?
 ├── NO → Skip
 └── YES
-    ├── Is this the first load (clean target)?
-    │   ├── YES → TRUNCATE_BEFORE_LOAD (default, safe for first load)
-    │   └── Does the target have foreign keys?
-    │       ├── YES → Consider DO_NOTHING + manual TRUNCATE CASCADE beforehand
-    │       └── NO → TRUNCATE_BEFORE_LOAD is fine
-    ├── Is this a reload after a failed task?
-    │   ├── YES → DO_NOTHING (you already truncated manually with CASCADE)
-    │   └── See troubleshooting.md for TRUNCATE CASCADE procedure
-    └── Do you want DMS to recreate tables?
-        └── DROP_AND_CREATE — DMS drops and recreates tables
-            └── Warning: loses indexes, constraints, triggers — must re-add after load
+    ├── Is this a reload after a failed or partial run?
+    │   └── YES → Stop the task, TRUNCATE ... CASCADE every task table on the target,
+    │            then DO_NOTHING (recovery steps: troubleshooting.md,
+    │            "Reload after a failed or partial run")
+    ├── Did the power preload the schema on the target (Method B: FKs, CHECKs, indexes, triggers)?
+    │   └── YES → DO_NOTHING, and the target tables must be empty before the task starts
+    │       ├── TRUNCATE_BEFORE_LOAD fails on tables that foreign keys reference, even on an
+    │       │   empty target and even with session_replication_role = 'replica'
+    │       │   (DMS log: "cannot truncate a table referenced in a foreign key constraint")
+    │       ├── Do not use TRUNCATE_BEFORE_LOAD for a preloaded schema
+    │       └── DO_NOTHING keeps whatever rows are there: a non-empty target gives duplicate key errors
+    └── Does DMS create the tables (Method A)?
+        └── YES → DROP_AND_CREATE
+            ├── Do not use TRUNCATE_BEFORE_LOAD on tables that foreign keys reference
+            └── Warning: DMS builds columns and primary keys only. Indexes, constraints and triggers must be added after the load
 ```
+
+Decision 6 (foreign key bypass) is separate and applies together with `DO_NOTHING` for a preloaded schema.
 
 ### Decision 6: Foreign Key Handling for DMS Full Load (Reference)
 
-**This section provides detailed guidance for FK handling. Decision 1 references this for the fallback case when `AfterConnectScript` is not applicable.**
+**This section provides detailed guidance for FK handling. Decision 1 references this for the fallback case when `AfterConnectScript` is not applicable. The bypass applies together with `DO_NOTHING` for a preloaded schema (the prep mode rule is stated once, in Decision 5). Record the choice in the migration notes.**
 
 **CRITICAL — MUST be configured BEFORE starting the DMS task. Failure to handle FKs causes `Table error` on child tables during full load because DMS loads tables in parallel and child rows may arrive before parent rows exist.**
 
@@ -489,7 +497,7 @@ Are you using DMS or native logical replication?
 | Schema migration scenario (if Method B) | A / B / C / D / E | |
 | Replication path | Native / DMS / Hybrid / Offline only | |
 | DMS plugin | test_decoding / pglogical / N/A | |
-| Target table prep mode | TRUNCATE_BEFORE_LOAD / DO_NOTHING / DROP_AND_CREATE / N/A | |
+| Target table prep mode | DO_NOTHING (preloaded schema, empty target) / DROP_AND_CREATE (Method A) / N/A (see Decision 5) | |
 | FK handling | session_replication_role / Manual drop-add / N/A | |
 | Index timing | Two-stop (indexes at NotApplied, FKs at Applied) / Single-stop / No stop / N/A | |
 | Trigger handling | Bypassed via session_replication_role (re-enable after cutover) / Remove / N/A | |
@@ -924,6 +932,19 @@ If replication is active, the source will show a row in `pg_stat_replication` wi
 Use DMS for tables where native replication doesn't work (no primary key, unsupported types), when the source is IPv6-only, or when built-in validation is needed.
 
 This section holds the only DMS create commands in the power. Other files state the rules and point here.
+
+> **Before you run any command**
+>
+> Record these four Mobilize decisions in the migration notes (the Mobilize decision summary table):
+>
+> - Decision 1, schema method (Method A, B or C)
+> - Decision 4, plugin (`test_decoding` or `pglogical`)
+> - Decision 5, target table prep mode
+> - Decision 6, foreign key bypass (for example `AfterConnectScript` on the target endpoint)
+>
+> If any of them is not recorded, stop and apply the Mobilize decisions first (Decisions 1, 4, 5 and 6 in this file).
+>
+> The four rules: all four values are recorded with a reason for each; a preloaded schema (Method B) needs `DO_NOTHING`; a source with foreign keys needs a bypass; Method A cannot create foreign keys and needs `DROP_AND_CREATE`.
 
 ### What you need before the first command
 
