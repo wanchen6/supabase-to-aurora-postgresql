@@ -1314,7 +1314,7 @@ The reload sequence (stop, truncate, reload, wait for table states) is in `troub
 
 ## DMS Validation Setup
 
-For databases > 100 GB, enable DMS validation in the replication task settings:
+For databases > 100 GB, turn DMS validation on by default in the replication task settings. The example task in `03-migrate-phase.md` Path 3 enables it for any size, which matches the tested run:
 
 ```json
 {
@@ -1324,14 +1324,14 @@ For databases > 100 GB, enable DMS validation in the replication task settings:
     "PartitionSize": 10000,
     "FailureMaxCount": 10000,
     "TableFailureMaxCount": 1000,
-    "ValidationQueryCdcDelaySeconds": 180
+    "ValidationQueryCdcDelaySeconds": 0
   }
 }
 ```
 
-> Note: `ValidationQueryCdcDelaySeconds` default is 0. The value 180 (seconds) is recommended for CDC scenarios to delay validation queries and let CDC changes apply before comparing rows.
+> Note: `ValidationQueryCdcDelaySeconds` default is 0, and 0 is the value used in the tested run ([Data validation task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.DataValidation.html)). The setting delays the first validation query on both sides for each CDC update, which can reduce contention when migration latency is high. Raise it (for example to 180 seconds) when the source is busy and CDC changes need time to apply before validation compares rows. A larger delay also postpones the first validation result (see "What to expect" above).
 
-DMS creates `awsdms_validation_failures_v1` table on the target for failure diagnostics.
+DMS writes validation failures to a control table on the target (`awsdms_validation_failures_v1`, or `_v2` from engine version 3.6.1). When a table shows `Mismatched records`, read that table yourself first. The schema depends on the task setting `ControlTablesSettings.ControlSchema`, so use the lookup and queries in [Path 3 Step 4 in `03-migrate-phase.md`](03-migrate-phase.md#step-4-monitor-dms-validation) and the decoding steps in [DMS validation: Mismatched records](troubleshooting.md#dms-validation-mismatched-records).
 
 CloudWatch metrics to monitor:
 - `ValidationSucceededRecordCount`

@@ -183,6 +183,37 @@ Map the cause:
 | `cannot truncate a table referenced in a foreign key constraint` | `TRUNCATE_BEFORE_LOAD` on a preloaded schema. | Mobilize Decision 5: `DO_NOTHING` on an empty target |
 | `invalid input syntax for type` or `is of type ... but expression is of type` | Type mapping. | Compare the column types on both sides and fix the mapping |
 
+### DMS validation: Mismatched records
+
+**Symptom**: `describe-table-statistics` shows `Mismatched records` (or `Suspended records`) for a table when validation is on.
+
+The target's validation failures table holds the reason. Read it yourself as the first step, before you give the user any explanation. The queries, the control schema lookup and the `_v2` / `_v1` choice are in [`03-migrate-phase.md` Path 3 Step 4](03-migrate-phase.md#step-4-monitor-dms-validation). Do not hard-code the schema.
+
+**What the columns mean** ([DMS data validation](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Validating.html)): `"FAILURE_TYPE"` is `RECORD_DIFF`, `MISSING_SOURCE`, `MISSING_TARGET` or `TABLE_WARNING`. `"KEY"` holds the primary key of the failed record. `"DETAILS"` is a JSON formatted string of the source and target column values that do not match for that key. The page does not say which of the two entries is the source, so do not rely on their order.
+
+**Decode it**:
+
+1. Read `"FAILURE_TYPE"` and `"DETAILS"`. Take the key values from `"KEY"` (`"KEY"::json->'key'`).
+2. Run the same `SELECT ... WHERE pk IN (...)` on both endpoints (source read-only, target with psql or the Data API), with `md5(t::text)` per row. Use the key lookup and not the order of the entries in `"DETAILS"`.
+3. Compare what the values mean, not how they print. Equal hashes for every failed key mean the rows are identical and the mismatch is a difference in how the validator represents the value.
+4. If only the representation differs and the independent counts and checksums match (exact row counts and `md5(string_agg(x::text, ',' ORDER BY pk))` per table, session time zone UTC on both sides), record it as a validation representation difference and continue. If any value differs, treat it as data loss and stop.
+
+To join the failure rows to a target table by key, use `"KEY"::json->'key'->>0 = t.id::text` (a single-column primary key). This follows the AWS suggestion to use the key to compare the record on both sides ([source and target data mismatch](https://repost.aws/knowledge-center/dms-source-target-data-mismatch)). The same page and [DMS task issues](https://repost.aws/knowledge-center/dms-task-issues-during-migration) also list checking that the source data type maps to a compatible target type, and checking character sets and collations.
+
+For `MISSING_SOURCE` and `MISSING_TARGET`, compare the key on both sides: a row that exists on one side only is a data difference until you show otherwise. For `Suspended records`, the source row is likely changing while DMS compares it. Read it again after the writes stop.
+
+The failures table is not cleared by a reload. Group the rows by minute to tell which load wrote them (the grouped query is in `03-migrate-phase.md` Path 3 Step 4).
+
+### DMS validation mismatch on boolean columns
+
+**Symptom**: with validation on, a table that has a boolean column ends as `Mismatched records`, while exact row counts and checksums are equal on both sides.
+
+**Observed once** (one run, full load, PostgreSQL source and Aurora PostgreSQL target, engine version 3.5.4): the failure rows were `RECORD_DIFF`. For the rows where the target boolean was true, `"DETAILS"` was `[[{'<boolean_column>': '\u0001'}, {'<boolean_column>': '1'}],]`. For the rows where it was false, it was `[[{'<boolean_column>': '<null>'}, {'<boolean_column>': '0'}],]` (a NUL byte prints as `<null>`). The two entries in each row are the same value in two representations: a raw boolean byte (0x01 or 0x00) and the text `'1'` or `'0'`. So the mismatch was a datatype representation difference in the validator, not a data difference. This agreed with the independent evidence: row counts and `md5(string_agg(x::text, ',' ORDER BY pk))` checksums were identical on all tables (session time zone UTC on both sides), and the `md5(t::text)` of every failed key was identical on both sides. A task built by hand earlier showed the same. After the boolean settings moved from the extra connection attribute string into `PostgreSQLSettings` on the source, the printed values changed, but the mismatch remained.
+
+**What to do**: follow the decoding steps in [DMS validation: Mismatched records](#dms-validation-mismatched-records). Equal checksums (the counts-and-checksums comparison: exact row counts and `md5(string_agg(x::text, ',' ORDER BY pk))` per table, session time zone UTC on both sides) and equal key hashes are the deciding evidence. Never act on a validation mismatch alone.
+
+Do not skip validation. Record what you saw. The cause of the representation difference inside DMS was not determined, and moving the boolean settings between the extra connection attribute string and `PostgreSQLSettings` did not change the outcome. This is not claimed to be a DMS defect, and it is not claimed that another engine version behaves the same or differently (untested). More detail: [DMS Validation Mismatch on Boolean Columns](03-migrate-phase.md#dms-validation-mismatch-on-boolean-columns).
+
 ### DMS Full Load + CDC Foreign Key Handling
 
 **Symptom**: DMS full load fails with foreign key constraint violations, or `TRUNCATE TABLE` / `DROP TABLE` fails with `cannot truncate a table referenced in a foreign key constraint`. The prep mode rule is stated once, in Mobilize [Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode): a preloaded schema uses `DO_NOTHING` on an empty target. Read it first.

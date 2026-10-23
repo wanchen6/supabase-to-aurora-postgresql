@@ -558,16 +558,51 @@ aws dms describe-table-statistics \
   --region <aws-region>
 ```
 
-If validation failures occur, query the failures table on the target:
+When a table shows `Mismatched records` (or `Suspended records`), read the validation failures table on the target yourself as the first step, before you offer the user any explanation. The procedure below is the single place for the queries. The decoding steps are in [DMS validation: Mismatched records](troubleshooting.md#dms-validation-mismatched-records).
 
-```sql
-SELECT task_name, table_owner, table_name, failure_time, key_type, key, failure_type, details
-FROM awsdms_validation_failures_v1
-ORDER BY failure_time DESC
-LIMIT 50;
-```
+1. Find the schema of the control tables. It is a task setting (`ControlTablesSettings.ControlSchema`). When it is empty, DMS uses the engine default, which is `public` for a PostgreSQL target ([Control table task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.ControlTable.html)). Do not hard-code it:
+
+   ```bash
+   aws dms describe-replication-tasks --filters Name=replication-task-arn,Values=<task-arn> --query "ReplicationTasks[0].ReplicationTaskSettings" --output text --region <aws-region>
+   ```
+
+   The output is a JSON string. Read `ControlTablesSettings.ControlSchema` from it. If you cannot tell, look the tables up by name:
+
+   ```sql
+   SELECT table_schema, table_name FROM information_schema.tables WHERE table_name LIKE 'awsdms%' ORDER BY 1, 2;
+   ```
+
+2. Pick the failures table by engine version. From replication engine 3.6.1 DMS creates `awsdms_validation_failures_v2` on a PostgreSQL target, shared by all tasks that have validation on; before that it creates `awsdms_validation_failures_v1`. Look for `_v2` first, then `_v1`, in the lookup above. Use the name you find in place of `<failures-table>` in the queries below. Never drop or truncate a `_v2` table ([DMS data validation](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Validating.html)).
+
+3. Read the rows. The column names are uppercase and must be quoted. `<control-schema>` is `public` unless the task sets another one, and `<failures-table>` is `awsdms_validation_failures_v2` or `awsdms_validation_failures_v1`, whichever step 2 found:
+
+   ```sql
+   SELECT "TASK_NAME", "TABLE_OWNER", "TABLE_NAME", "FAILURE_TIME", "KEY_TYPE", "KEY", "FAILURE_TYPE", "DETAILS"
+   FROM <control-schema>.<failures-table> ORDER BY "FAILURE_TIME" DESC LIMIT 50;
+   ```
+
+4. Rows from an earlier run stay in this table: `reload-target` and truncating the data tables do not clear it. Tell the loads apart with a grouped summary, then compare the minutes with the start time of the current load:
+
+   ```sql
+   SELECT "TABLE_NAME", "FAILURE_TYPE", date_trunc('minute', "FAILURE_TIME") AS minute, count(*)
+   FROM <control-schema>.<failures-table>
+   GROUP BY "TABLE_NAME", "FAILURE_TYPE", date_trunc('minute', "FAILURE_TIME") ORDER BY minute DESC;
+   ```
+
+   Before a reload, filter by `"FAILURE_TIME"` when you read it, or delete only this task's rows with `DELETE FROM <control-schema>.<failures-table> WHERE "TASK_NAME" = '<task-external-id>'` (truncate a `_v1` table only when no other task validates against the same target; never a `_v2` table; see [Reload after a failed or partial run](troubleshooting.md#reload-after-a-failed-or-partial-run)).
+
+5. For errors while DMS applies CDC changes, read the second control table, which has `"TASK_NAME"`, `"TABLE_OWNER"`, `"TABLE_NAME"`, `"ERROR_TIME"`, `"STATEMENT"` and `"ERROR"`:
+
+   ```sql
+   SELECT "TASK_NAME", "TABLE_OWNER", "TABLE_NAME", "ERROR_TIME", "STATEMENT", "ERROR"
+   FROM <control-schema>.awsdms_apply_exceptions ORDER BY "ERROR_TIME" DESC LIMIT 50;
+   ```
+
+`ControlSchema` is optional. Set it in the task settings (`"ControlTablesSettings": {"ControlSchema": "<control-schema>"}`) only if the user wants the control tables kept out of the application schema. The example task leaves it unset, so the default applies.
 
 DMS suspends validation after 10,000 failures. Resolve failures and restart validation if needed.
+
+If a table shows `Mismatched records`, do not act on the mismatch alone. Decode it with the key lookup and cross-check with independent counts and checksums: [DMS validation: Mismatched records](troubleshooting.md#dms-validation-mismatched-records). For a boolean column see also [DMS validation mismatch on boolean columns](troubleshooting.md#dms-validation-mismatch-on-boolean-columns) and [DMS Validation Mismatch on Boolean Columns](#dms-validation-mismatch-on-boolean-columns).
 
 ### Step 5: Wait for CDC to Catch Up
 
@@ -575,7 +610,7 @@ Before cutover, ensure CDC lag is minimal:
 
 - `CDCLatencyTarget` < 5 seconds
 - `CDCIncomingChanges` = 0 or near 0
-- All tables show `ValidationState = Validated`
+- All tables show `ValidationState = Validated`, or a mismatch is explained by equal independent checksums ([boolean columns](#dms-validation-mismatch-on-boolean-columns))
 
 ### Step 6: Proceed to Cutover
 
@@ -1104,6 +1139,19 @@ aws logs filter-log-events \
 When the message says `Please check target database logs for more information`, read the Aurora PostgreSQL error log yourself: see `troubleshooting.md` → "DMS table error: exitwhy 1 / check target database logs". Aurora logs appear in CloudWatch Logs under `/aws/rds/cluster/<cluster-id>/postgresql` only when the `postgresql` log export is on.
 
 See `troubleshooting.md` → "Reading DMS Task Logs" for the full troubleshooting workflow, common error patterns, and resolution steps.
+
+### DMS Validation Mismatch on Boolean Columns
+
+Observed on one run: with validation on, a table with a boolean column ended as `Mismatched records` while the data was identical. The failure rows were `RECORD_DIFF`. Decoded through the key, `"DETAILS"` held the same value in two representations: `'\u0001'` against `'1'` where the target value was true, and `'<null>'` against `'0'` where it was false (a NUL byte prints as `<null>`). The `md5(t::text)` of every failed key was identical on both sides, and exact row counts and `md5(string_agg(x::text, ',' ORDER BY pk))` checksums were equal on every table, with the session time zone set to UTC on both sides. A task built by hand earlier showed the same.
+
+Rules:
+
+1. Never act on a validation mismatch alone. Read the failures table first and decode it with the key lookup: [DMS validation: Mismatched records](troubleshooting.md#dms-validation-mismatched-records). The queries are in Path 3 Step 4 above (`#step-4-monitor-dms-validation`).
+2. Fetch the failed rows by `"KEY"` on both sides with an independent query (`md5(t::text)` per row), and run a counts-and-checksums comparison: exact row counts and `md5(string_agg(x::text, ',' ORDER BY pk))` per table, with the session time zone set to UTC on both sides. Equal checksums are the deciding evidence. Do not rely on the order of the two entries in `"DETAILS"`: the AWS page does not say which entry is the source.
+3. If only the representation differs and the checksums match, record it as a validation representation difference and continue. If values differ, treat it as data loss and stop.
+4. Keep validation on. Do not suppress it.
+
+Not claimed: the cause of the representation difference inside DMS was not determined, moving the settings between the extra connection attribute string and `PostgreSQLSettings` did not change the outcome, and this is not claimed to be a DMS defect. The same entry for troubleshooting: `troubleshooting.md` → "DMS validation mismatch on boolean columns".
 
 ## Success Criteria
 
