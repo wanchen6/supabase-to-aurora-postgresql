@@ -180,7 +180,7 @@ Map the cause:
 | --------------- | ----- | --- |
 | `duplicate key value violates unique constraint` | The target is not empty. A `DO_NOTHING` load found rows from an earlier run. | [Reload after a failed or partial run](#reload-after-a-failed-or-partial-run) |
 | `violates foreign key constraint` | Load order, or the foreign key bypass is missing. | Check `AfterConnectScript` on the target endpoint (Mobilize Decision 6) |
-| `cannot truncate a table referenced in a foreign key constraint` | `TRUNCATE_BEFORE_LOAD` on a preloaded schema. | Mobilize Decision 5: `DO_NOTHING` on an empty target |
+| `cannot truncate a table referenced in a foreign key constraint` | `TRUNCATE_BEFORE_LOAD` was used on a preloaded schema (do not use it on tables that foreign keys reference). | Mobilize Decision 5: `DO_NOTHING` on an empty target |
 | `invalid input syntax for type` or `is of type ... but expression is of type` | Type mapping. | Compare the column types on both sides and fix the mapping |
 
 ### DMS validation: Mismatched records

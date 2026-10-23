@@ -503,7 +503,8 @@ aws dms create-replication-task \
       "ThreadCount": 5,
       "PartitionSize": 10000,
       "FailureMaxCount": 10000,
-      "ValidationQueryCdcDelaySeconds": 180
+      "TableFailureMaxCount": 1000,
+      "ValidationQueryCdcDelaySeconds": 0
     },
     "Logging": {
       "EnableLogging": true,
@@ -521,6 +522,8 @@ aws dms create-replication-task \
   }' \
   --region <aws-region>
 ```
+
+`ValidationQueryCdcDelaySeconds` is 0 here, the same value as in "DMS Validation Setup" in `02-mobilize-phase.md` (which explains when to raise it for a busy source).
 
 The second selection rule keeps DMS helper tables left in the source (`awsdms_heartbeat`, `awsdms_ddl_audit`) out of the task, because they come from DMS and not from the application. In a selection rule `%` matches zero or more characters and `_` matches a single character ([wildcards](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TableMapping.SelectionTransformation.Wildcards.html)), so `awsdms_%` also matches a name such as `awsdmsX1`. This exclude rule was not exercised on a live task.
 

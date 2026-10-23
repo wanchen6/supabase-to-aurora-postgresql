@@ -1429,7 +1429,7 @@ These times were observed on one run with `dms.t3.small`. They are not guarantee
 
 | Step | Observed |
 | ---- | -------- |
-| Replication instance creation (`create-replication-instance` to `available`) | About 10 minutes |
+| Replication instance creation (from the create call to status `available`) | About 10 minutes |
 | `stop-replication-task` to status `stopped` | 1 to 2 minutes |
 | `modify-replication-task` | Needs a stopped task. The status passes through `modifying` |
 | Validation with `ValidationQueryCdcDelaySeconds` at 180 | The first validation states are `Pending validation` and `Pending records`. A mismatch showed up about 7 minutes after the load finished |
