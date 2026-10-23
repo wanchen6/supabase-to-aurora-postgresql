@@ -57,6 +57,8 @@ Is downtime acceptable?
 | Native replication + NAT gateway + Supabase IPv4 add-on | ~$9 (estimate) | Low | Near-zero (CDC) |
 | pg_dump at cutover (bastion with IPv6) | ~$0.01 | Lowest | Seconds |
 
+The weekly figures are estimates that were not re-checked for this release; check before relying on it (current AWS and Supabase prices).
+
 ## Validation Strategy by Database Size
 
 ```
@@ -91,7 +93,7 @@ Database size?
 ## Flow Summary: Native Logical Replication (Preferred Online Path)
 
 ### Prerequisites
-- Supabase instance XL or greater
+- Supabase instance size reviewed (XL or greater is a rule of thumb, check before relying on it)
 - External connectivity: for online migration from IPv6-only Supabase, use DMS (publicly-accessible, dual-stack) or pg_dump via bastion. Native replication needs an IPv4 route to the source (Supabase IPv4 add-on + NAT gateway). A direct subscription to an IPv6-only publisher is not yet validated. See `supabase-prerequisites-and-connectivity.md` → "Online Migration from IPv6-Only Supabase Sources" and its Verification status table.
 - Replication parameters configured via Supabase CLI:
   ```bash

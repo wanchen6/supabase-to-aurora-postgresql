@@ -281,7 +281,7 @@ supabase --experimental --project-ref <project-ref> postgres-config update \
 
 - Supabase CLI installed (`npm install -g supabase`)
 - Logged in (`supabase login`)
-- Instance size XL or greater recommended for replication performance (logical replication is available on all Supabase plans including Free, but XL provides better throughput for production migrations)
+- Instance size: XL or greater is a rule of thumb for replication performance that has no published source; check before relying on it (logical replication is available on all Supabase plans including Free)
 - IPv4 add-on NOT required if VPC supports IPv6 (use DMS dual-stack mode instead). Only use IPv4 add-on if already enabled on the Supabase project.
 
 ### Verification

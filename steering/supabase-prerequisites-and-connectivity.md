@@ -18,7 +18,7 @@ Before configuring Supabase for migration, determine whether write access to the
 
 ### Instance Requirements
 
-- **Instance size**: XL or greater recommended for logical replication performance (native or DMS). Note: logical replication is available on all Supabase plans including Free, but XL provides better performance for production migrations.
+- **Instance size**: XL or greater is a rule of thumb for logical replication performance (native or DMS) that has no published source; check before relying on it. Logical replication is available on all Supabase plans including Free.
 - **IPv4 add-on**: NOT required if VPC supports IPv6 — use DMS dual-stack mode instead (free). Only use IPv4 add-on if it is already enabled on the Supabase project. See "IPv6 and Dual-Stack Connectivity" below for details.
 - **External connectivity decision tree**:
   1. Check if the user's VPC has IPv6 CIDR, subnets with IPv6 allocation, and `::/0` route to IGW
@@ -528,7 +528,7 @@ For the connection method decision tree (rdsapi vs pgwire vs pgwire_iam) and MCP
 Before proceeding to migration execution, verify:
 
 - [ ] Supabase MCP server connected (via OAuth) and can list tables
-- [ ] Supabase instance is XL or greater
+- [ ] Supabase instance size reviewed (XL or greater is a rule of thumb, check before relying on it)
 - [ ] Supabase external connectivity verified (DMS dual-stack mode preferred; IPv4 add-on only if already enabled)
 - [ ] Supabase replication parameters are configured and verified
 - [ ] If the Aurora PostgreSQL MCP server is registered: it is connected (uses default AWS credential chain; add AWS_PROFILE/AWS_REGION to env only if non-default profile needed). It is optional

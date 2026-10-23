@@ -39,7 +39,7 @@ Reference for Aurora PostgreSQL capabilities that are relevant when recommending
 
 ### Cost Crossover Point
 
-Aurora costs more at small scale (< 50 GB, single instance, no PITR) because of the always-on minimum compute cost (~$44/month for Serverless v2 at 0.5 ACU). The cost advantage shifts to Aurora when:
+Aurora costs more at small scale (< 50 GB, single instance, no PITR) because of the always-on minimum compute cost (~$44/month for Serverless v2 at 0.5 ACU; an estimate, check before relying on it). The cost advantage shifts to Aurora when:
 
 - Database exceeds ~100 GB (storage pricing favors Aurora)
 - PITR is needed (Aurora includes backup storage free up to cluster size; platforms often charge $100–400/month extra)

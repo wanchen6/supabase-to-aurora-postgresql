@@ -108,7 +108,7 @@ Present cost comparison to user:
 
 For an IPv6-only source, the online route is DMS in dual-stack mode or native replication over the IPv4 add-on path. A direct Aurora subscription to an IPv6-only publisher is not yet validated (Verification status table in `supabase-prerequisites-and-connectivity.md`).
 
-The DMS cost is compute only: `dms.t3.small`, Single-AZ, 168 hours at the US East (N. Virginia) on-demand rate in the [AWS DMS price list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDatabaseMigrationSvc/current/index.json) (about $6 per week; an estimate). Rates differ by Region and instance class. Check the live [AWS DMS pricing page](https://aws.amazon.com/dms/pricing/) before quoting a figure to the user.
+The DMS cost is compute only: `dms.t3.small`, Single-AZ, 168 hours at the US East (N. Virginia) on-demand rate in the [AWS DMS price list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDatabaseMigrationSvc/current/index.json) (about $6 per week; an estimate). Rates differ by Region and instance class. Check the live [AWS DMS pricing page](https://aws.amazon.com/dms/pricing/) before quoting a figure to the user. The IPv4 add-on ($4/month) and NAT gateway ($32/month) figures in the table are estimates that were not re-checked for this release; check before relying on it (current Supabase and AWS prices).
 
 **Step 5: Present networking plan to user**
 
