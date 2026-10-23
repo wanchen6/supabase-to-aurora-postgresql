@@ -88,7 +88,7 @@ If the Supabase MCP connects but returns the wrong project (common with multiple
 "url": "https://mcp.supabase.com/mcp?project_ref=<your-project-ref>"
 ```
 
-Replace `<your-project-ref>` with the ID from your Supabase URL (e.g., `iubiqvnnusijoogaauqf` from `https://iubiqvnnusijoogaauqf.supabase.co`). Saving scopes the MCP connection to the specified project (and will prompt for authentication if required).
+Replace `<your-project-ref>` with the ID from your Supabase URL (e.g., `abcdefghijklmnopqrst` from `https://abcdefghijklmnopqrst.supabase.co`). Saving scopes the MCP connection to the specified project (and will prompt for authentication if required).
 
 ## Power Structure
 

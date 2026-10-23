@@ -380,7 +380,7 @@ On first use, the MCP server will prompt you to authenticate via your browser an
 
 When the Supabase MCP returns data from a different project than the user's target (common with multiple orgs), the agent fixes this automatically:
 
-1. Extract the correct `project_ref` from the user's Supabase URL (e.g., `iubiqvnnusijoogaauqf` from `https://iubiqvnnusijoogaauqf.supabase.co`)
+1. Extract the correct `project_ref` from the user's Supabase URL (e.g., `abcdefghijklmnopqrst` from `https://abcdefghijklmnopqrst.supabase.co`)
 2. Edit `~/.kiro/settings/mcp.json` — find the power's Supabase MCP server entry (under the `powers` block) and update the URL to `https://mcp.supabase.com/mcp?project_ref=<project-ref>`. Do NOT create a new entry in workspace `.kiro/settings/mcp.json` — that creates a duplicate server that lacks the OAuth token and causes permission errors.
 3. Wait for the MCP server to reconnect (Kiro reconnects automatically on config save)
 4. Retry `list_tables` to verify it now returns the correct project
