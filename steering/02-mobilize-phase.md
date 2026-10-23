@@ -105,9 +105,13 @@ Present cost comparison to user:
 
 | Approach | When Source is IPv6-only | When Source has IPv4 | Cost/week | Complexity |
 |----------|------------------------|---------------------|-----------|------------|
-| DMS (dms.t3.micro, publicly-accessible) | ✅ Works | ✅ Works | ~$3 | Medium |
+| DMS (`dms.t3.small`, publicly-accessible, dual-stack) | ✅ Works | ✅ Works | ~$6 | Medium |
 | Native replication + NAT + IPv4 add-on | Requires IPv4 add-on ($4/mo) + NAT ($32/mo) | ✅ Works (NAT only) | ~$9 | Low |
 | pg_dump at cutover (bastion with IPv6) | ✅ Works | ✅ Works | ~$0.01 | Lowest (seconds downtime) |
+
+For an IPv6-only source, the online route is DMS in dual-stack mode or native replication over the IPv4 add-on path. A direct Aurora subscription to an IPv6-only publisher is not yet validated (Verification status table in `supabase-prerequisites-and-connectivity.md`).
+
+The DMS cost is compute only: `dms.t3.small`, Single-AZ, 168 hours at the US East (N. Virginia) on-demand rate in the [AWS DMS price list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDatabaseMigrationSvc/current/index.json) (about $6 per week; an estimate). Rates differ by Region and instance class. Check the live [AWS DMS pricing page](https://aws.amazon.com/dms/pricing/) before quoting a figure to the user.
 
 **Step 5: Present networking plan to user**
 
@@ -142,7 +146,7 @@ NEVER create subnets without verifying CIDR availability first. CIDR conflicts r
 
 ### DMS Creation Checklist (Generic)
 
-For the complete DMS Creation Checklist with exact settings, see `supabase-prerequisites-and-connectivity.md` → "DMS Connectivity Prerequisites".
+For the complete DMS creation steps with exact settings (secrets, IAM role, subnet group, security group, replication instance, endpoints), see "AWS DMS Setup (Fallback Path)" in this file. The connectivity rules are in `supabase-prerequisites-and-connectivity.md` → "DMS Connectivity Prerequisites".
 
 ### Decision 1: Schema Migration Method
 
@@ -917,7 +921,20 @@ If replication is active, the source will show a row in `pg_stat_replication` wi
 
 ## AWS DMS Setup (Fallback Path)
 
-Use DMS for tables where native replication doesn't work (no primary key, unsupported types) or when built-in validation is needed.
+Use DMS for tables where native replication doesn't work (no primary key, unsupported types), when the source is IPv6-only, or when built-in validation is needed.
+
+This section holds the only DMS create commands in the power. Other files state the rules and point here.
+
+### What you need before the first command
+
+- The recorded Mobilize decisions: schema method (Decision 1), plugin (Decision 4), target table prep mode (Decision 5) and foreign key bypass (Decision 6). Steps 4 and 5 use the plugin and the foreign key bypass. Decision 5 sets the task template in `03-migrate-phase.md` Path 3.
+- Two secrets in Secrets Manager, one for the source and one for the target (Step 1).
+- An IAM role that lets DMS read those two secrets (Step 1b).
+- A replication subnet group of dual-stack public subnets (Step 2).
+- A security group for the replication instance, and an inbound rule on the Aurora security group (Step 3a).
+- The replication instance (Step 3b), then the source and target endpoints (Steps 4 and 5), then connection tests (Step 6).
+
+Ask for the user's consent before each create call (see `agent-behavioral-rules.md`). Print the matching delete command at the same time. In every command below, `<region>` and `<aws-region>` mean the same Region.
 
 ### Step 1: Create Secrets in AWS Secrets Manager
 
@@ -936,12 +953,86 @@ unset SOURCE_PASS
 echo -n "Enter target DB password: " && read -s TARGET_PASS && echo && \
 aws secretsmanager create-secret \
   --name dms-target-<project-name> \
-  --secret-string "{\"username\":\"postgres\",\"password\":\"$TARGET_PASS\",\"host\":\"<target-endpoint>\",\"port\":5432,\"dbname\":\"<database-name>\"}" \
+  --secret-string "{\"username\":\"<target-user>\",\"password\":\"$TARGET_PASS\",\"host\":\"<target-endpoint>\",\"port\":5432,\"dbname\":\"<database-name>\"}" \
   --region <aws-region> && \
 unset TARGET_PASS
 ```
 
 Alternative: Create secrets via the AWS Console (Secrets Manager → Store a new secret → Other type of secret) to avoid CLI entirely.
+
+What the secret must hold. Each secret is a JSON object with `username`, `password`, `host` and `port`. The AWS documentation calls these the minimum members and says DMS ignores any other member ([Using secrets to access DMS endpoints](https://docs.aws.amazon.com/dms/latest/userguide/security_iam_secretsmanager.html)). The `dbname` member above is a note for people reading the secret. DMS does not use it. The same page says DMS does not allow these characters in endpoint passwords: `;.:+{}*&,%\`. Leave them out of the password.
+
+What follows for the endpoint commands:
+
+- With `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn` set, DMS rejects `--server-name` and `--port`. The call fails with `InvalidParameterCombinationException`: give either username, password, server name and port, or the secret and its role. Host and port therefore live inside the secret.
+- `--database-name` is still required. Without it the call fails with `InvalidParameterValueException` (the parameter must be provided and must not be blank).
+
+**Aurora's cluster-managed secret cannot be the target secret.** The secret that Aurora manages for the cluster (`MasterUserSecret`, named `rds!cluster-...`) holds only a username and a password. The AWS documentation says it lacks the host and port that DMS needs, and recommends a new user and secret instead. It also rotates, so a DMS-format secret that copies its password stops matching after the next rotation. Pick one:
+
+- Preferred: a dedicated migration user on the target, with its own secret. The user or the Data API runs the SQL, and the password comes from the secret, never from chat.
+- Otherwise: copy the admin credentials into the DMS-format secret, tell the user that rotation will make it stale, and after any rotation update the secret (`aws secretsmanager put-secret-value`) and run Step 6 again.
+
+```sql
+CREATE ROLE <migration-user> LOGIN PASSWORD '<password-from-secret>';
+GRANT USAGE, CREATE ON SCHEMA public TO <migration-user>;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <migration-user>;
+-- PostgreSQL 15 or later: lets the endpoint script set session_replication_role (Decision 6)
+GRANT SET ON PARAMETER session_replication_role TO <migration-user>;
+```
+
+This grant list has not been run end to end. The tested run used the cluster admin user. After creating the role, run Step 6 and a small load before relying on it. The `GRANT SET ON PARAMETER` form comes from [How do I turn off foreign keys or triggers in RDS for PostgreSQL or Aurora PostgreSQL](https://repost.aws/knowledge-center/rds-postgresql-foreign-keys). That page says PostgreSQL 14 and earlier need `rds_superuser` instead. `CREATE` on the schema lets DMS create its control tables.
+
+### Step 1b: Create the IAM Role That Lets DMS Read the Secrets
+
+DMS reads the secrets through a role that you pass as `SecretsManagerAccessRoleArn`. Create it before the endpoints. The trust policy names the regional DMS service principal. The AWS documentation names only the regional principal ([Using secrets to access DMS endpoints](https://docs.aws.amazon.com/dms/latest/userguide/security_iam_secretsmanager.html)). The tested run also listed the global principal `dms.amazonaws.com`, so the recipe keeps both.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": ["dms.<region>.amazonaws.com", "dms.amazonaws.com"]},
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+Save it as `dms-secrets-trust.json`. The permission policy grants read access on exactly the two secrets from Step 1 and nothing else:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+    "Resource": ["<source-secret-arn>", "<target-secret-arn>"]
+  }]
+}
+```
+
+Save it as `dms-secrets-policy.json`, then:
+
+```bash
+aws iam create-role \
+  --role-name dms-secrets-<project-name> \
+  --assume-role-policy-document file://dms-secrets-trust.json
+
+aws iam put-role-policy \
+  --role-name dms-secrets-<project-name> \
+  --policy-name read-dms-secrets \
+  --policy-document file://dms-secrets-policy.json
+
+# Delete commands (print them at the consent step)
+# aws iam delete-role-policy --role-name dms-secrets-<project-name> --policy-name read-dms-secrets
+# aws iam delete-role --role-name dms-secrets-<project-name>
+```
+
+Notes from the AWS documentation page above:
+
+- `GetSecretValue` is the permission DMS needs. The page lists `DescribeSecret` for a secret in another account. The recipe grants it on the same two secrets either way.
+- If a customer-managed KMS key encrypts a secret, add `kms:Decrypt` and `kms:DescribeKey` on that key. The default Secrets Manager key needs no KMS statement.
+- The IAM principal that runs `create-endpoint` and `modify-endpoint` needs `iam:GetRole` and `iam:PassRole` on this role, and `secretsmanager:DescribeSecret` on the secrets. DMS checks both.
+- A replication instance in a private subnet needs a Secrets Manager VPC endpoint and the extra connection attribute `secretsManagerEndpointOverride`. This recipe uses a publicly accessible instance in public subnets, which was not observed to need it.
 
 ### Step 2: Create DMS Subnet Group
 
@@ -949,21 +1040,102 @@ Alternative: Create secrets via the AWS Console (Secrets Manager → Store a new
 aws dms create-replication-subnet-group \
   --replication-subnet-group-identifier dms-subnet-group-<project-name> \
   --replication-subnet-group-description "PostgreSQL migration" \
-  --subnet-ids <subnet-id-1> <subnet-id-2> \
+  --subnet-ids <public-subnet-id-1> <public-subnet-id-2> \
   --region <aws-region>
 ```
 
-### Step 3: Create DMS Replication Instance
+Use at least two subnets in two Availability Zones. For a dual-stack instance, each subnet in the group needs an IPv6 CIDR block ([IP addressing and network types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_ReplicationInstance.IPAddressing.html)). The same page says DMS disables internet gateway access for the IPv6 endpoints of a private dual-stack instance. So this group uses public subnets with a `::/0` route to the internet gateway. That differs from the Aurora subnet group, which stays private. Check both facts first (read-only):
+
+```bash
+aws ec2 describe-subnets --subnet-ids <public-subnet-id-1> <public-subnet-id-2> \
+  --query "Subnets[*].[SubnetId,AvailabilityZone,Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock]" --output text
+aws ec2 describe-route-tables --filters "Name=association.subnet-id,Values=<public-subnet-id-1>" \
+  --query "RouteTables[*].Routes[?DestinationIpv6CidrBlock=='::/0'].GatewayId" --output text
+```
+
+The decision tree is in "IPv6 and Dual-Stack Connectivity" in `supabase-prerequisites-and-connectivity.md`.
+
+### Step 3a: Create the Security Group for the Replication Instance
+
+The replication instance needs its own security group with no inbound rules. Aurora then accepts connections from that group on port 5432.
+
+```bash
+aws ec2 create-security-group \
+  --group-name dms-<project-name> \
+  --description "DMS replication instance" \
+  --vpc-id <vpc-id> \
+  --region <aws-region>
+
+aws ec2 authorize-security-group-ingress \
+  --group-id <aurora-sg-id> \
+  --protocol tcp --port 5432 \
+  --source-group <dms-sg-id> \
+  --region <aws-region>
+
+# Delete commands (print them at the consent step)
+# aws ec2 revoke-security-group-ingress --group-id <aurora-sg-id> --protocol tcp --port 5432 --source-group <dms-sg-id>
+# aws ec2 delete-security-group --group-id <dms-sg-id>
+```
+
+The AWS documentation says a new security group starts with no inbound rules and with an outbound rule that allows all outbound traffic ([Security group rules](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html)). The instance needs outbound access to the source on port 5432, to Aurora on port 5432 and to Secrets Manager on port 443. Confirm the outbound rules cover the source's address family before creating the instance (read-only). An IPv6-only source needs an IPv6 rule:
+
+```bash
+aws ec2 describe-security-groups --group-ids <dms-sg-id> \
+  --query "SecurityGroups[0].IpPermissionsEgress" --region <aws-region>
+```
+
+In the tested run the instance reached Aurora over the VPC in dual-stack mode, and the source over IPv6.
+
+### Step 3b: Create DMS Replication Instance
+
+Check which classes and engine versions the Region can order (read-only):
+
+```bash
+aws dms describe-orderable-replication-instances --region <aws-region> \
+  --query "OrderableReplicationInstances[].[ReplicationInstanceClass,EngineVersion]" --output text
+```
+
+Then create the instance. This is the only replication instance command in the power:
 
 ```bash
 aws dms create-replication-instance \
   --replication-instance-identifier dms-instance-<project-name> \
-  --replication-instance-class dms.r5.large \
-  --allocated-storage 100 \
-  --vpc-security-group-ids <security-group-id> \
+  --replication-instance-class <instance-class> \
+  --engine-version <engine-version> \
+  --allocated-storage <gb> \
+  --no-multi-az \
+  --publicly-accessible \
+  --network-type DUAL \
+  --vpc-security-group-ids <dms-sg-id> \
   --replication-subnet-group-identifier dms-subnet-group-<project-name> \
   --region <aws-region>
 ```
+
+- `--publicly-accessible` gives the instance a public address so it can reach an external source. It cannot be changed after creation. Without it, delete and recreate the instance.
+- `--network-type DUAL` enables IPv4 and IPv6. Write the value in uppercase. `modify-replication-instance --network-type DUAL` changes it later (see "IPv6 and Dual-Stack Connectivity" in `supabase-prerequisites-and-connectivity.md`).
+- `--engine-version`: choose a version from the check above and record it in the migration notes. The API default is the latest available version, which can change between runs. The steps were exercised on engine version 3.5.4 (observed on one run), so use that when it is listed and check the current version before you rely on it. Other versions have not been exercised. The validation failures table differs by version: DMS creates `awsdms_validation_failures_v2` on a PostgreSQL target from version 3.6.1 on, and `_v1` before that ([AWS DMS data validation](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Validating.html)).
+- `--allocated-storage`: 20 GB is a sample for a small database. Raise it for a heavy full load, because changes that do not fit in memory and the task logs use this disk ([Selecting the best size for a replication instance](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_BestPractices.SizingReplicationInstance.html)).
+
+Sizing. The AWS documentation lists the class memory in [Choosing the right replication instance](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_ReplicationInstance.Types.html). Start from the smallest class that fits and watch CPU, free memory, free storage and IOPS.
+
+| Situation | Class to start with | Why |
+| --------- | ------------------- | --- |
+| Small database, test run, light CDC | `dms.t3.small` (the sample, 2 vCPU, 2 GiB) | Burstable T3 class, lowest cost |
+| Larger tables, several tasks in parallel | `dms.t3.medium` or `dms.t3.large` (4 or 8 GiB) | More memory for the caches. Parallel tasks and threads use CPU |
+| Heavy CDC, many LOB columns, large databases | A memory-optimized R class, for example `dms.r6i.large` (16 GiB) | The sizing page says LOBs are processed in memory and a high change rate grows the caches |
+| Compute-bound work | A C class, for example `dms.c6i.large` (4 GiB) | More CPU for the memory |
+
+In one run, `CreateReplicationInstance` rejected the micro class with "Invalid ReplicationInstance class", and `dms.t3.small` was the smallest class that Region could order. The AWS class table lists a smaller class, so run the check above and do not assume. A `dms.t3.small` instance costs about $6/week (an estimate, compute only; check the live price for your Region).
+
+Poll until the instance is ready before creating endpoints. Wait at intervals (see the table under Step 6), not in a tight loop:
+
+```bash
+aws dms describe-replication-instances \
+  --filters Name=replication-instance-id,Values=dms-instance-<project-name> \
+  --query "ReplicationInstances[0].ReplicationInstanceStatus" --output text --region <aws-region>
+```
+
+The status must be `available`.
 
 ### Step 4: Create Source Endpoint
 

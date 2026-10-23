@@ -22,7 +22,7 @@ Before configuring Supabase for migration, determine whether write access to the
 - **IPv4 add-on**: NOT required if VPC supports IPv6 — use DMS dual-stack mode instead (free). Only use IPv4 add-on if it is already enabled on the Supabase project. See "IPv6 and Dual-Stack Connectivity" below for details.
 - **External connectivity decision tree**:
   1. Check if the user's VPC has IPv6 CIDR, subnets with IPv6 allocation, and `::/0` route to IGW
-  2. If YES → use DMS dual-stack mode (`--network-type dual`) — no Supabase add-on needed
+  2. If YES → use DMS dual-stack mode (`--network-type DUAL`) — no Supabase add-on needed
   3. If NO → check if Supabase IPv4 add-on is already enabled
   4. If IPv4 already enabled → use it (no VPC changes needed)
   5. If neither → enable IPv6 on the VPC (preferred) or enable IPv4 add-on on Supabase (simpler but costs extra)
@@ -175,7 +175,7 @@ If using AWS DMS for migration:
 1. **DMS replication instance** must be in a VPC subnet that can reach both Supabase (internet) and Aurora (private)
 2. **Source endpoint** (Supabase): uses public internet — ensure the DMS subnet has a NAT gateway or internet gateway
 3. **Target endpoint** (Aurora): uses private networking within the VPC
-4. **Security group** for the DMS replication instance must allow outbound to Supabase on port 5432 and inbound/outbound to Aurora on port 5432
+4. **Security group** for the DMS replication instance must allow outbound to Supabase on port 5432 and to Aurora on port 5432, and the Aurora security group must allow inbound 5432 from it (recipe: Step 3a in `02-mobilize-phase.md` → "AWS DMS Setup (Fallback Path)")
 5. **SSL**: Always use `SslMode: require` on BOTH source and target endpoints
 6. **Test connections** before creating migration tasks
 
@@ -197,28 +197,16 @@ Is the source database external (outside AWS VPC)?
     └── --no-publicly-accessible (default, more secure)
 ```
 
-**For Supabase migrations, always use `--publicly-accessible`** because Supabase is an external source. The DMS instance also needs `--network-type dual` for IPv6 connectivity to Supabase.
+**For Supabase migrations, always use `--publicly-accessible`** because Supabase is an external source. The DMS instance also needs `--network-type DUAL` for IPv6 connectivity to Supabase.
 
-**Complete DMS instance creation command for Supabase migrations:**
-
-```bash
-aws dms create-replication-instance \
-  --replication-instance-identifier <name> \
-  --replication-instance-class dms.t3.medium \
-  --allocated-storage 20 \
-  --no-multi-az \
-  --publicly-accessible \
-  --network-type dual \
-  --replication-subnet-group-identifier <subnet-group> \
-  --region <region>
-```
+The complete replication instance command, with the sizing table and the security group and secrets steps that go with it, is in `02-mobilize-phase.md` under "AWS DMS Setup (Fallback Path)", Step 3b. It is kept in that one place so the copies cannot drift apart.
 
 ### DMS Endpoint SSL Configuration
 
 **Before creating any DMS endpoint, resolve the correct Aurora secret.** Do NOT scan Secrets Manager for a likely secret — get it directly from the cluster:
 
 ```bash
-# Step 1: Get the cluster's own managed secret ARN and master username
+# Step 1: Get the cluster's own managed secret ARN and admin username
 aws rds describe-db-clusters \
   --db-cluster-identifier <cluster-id> \
   --query 'DBClusters[0].{User:MasterUsername,SecretArn:MasterUserSecret.SecretArn}'
@@ -231,7 +219,9 @@ aws secretsmanager get-secret-value --secret-id <SecretArn> \
 
 Only proceed to create the DMS target endpoint after confirming the username matches `MasterUsername`. Using the wrong secret is a common source of `password authentication failed` errors during DMS endpoint testing.
 
-**Secrets Manager flags**: Do NOT use `--secrets-manager-secret-id` / `--secrets-manager-access-role-arn` as top-level CLI flags — they are not supported that way. These must be passed inside `--postgre-sql-settings` as `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn`.
+This lookup finds the admin user. It does not give you a secret that DMS can use. The cluster-managed secret (`MasterUserSecret`) has no host or port, so it cannot be passed as `SecretsManagerSecretId`. The AWS documentation says to create a new user and secret instead. Step 1 in `02-mobilize-phase.md` builds a DMS-format secret (username, password, host and port) and covers the rotation caveat.
+
+**Secrets Manager flags**: Do NOT use `--secrets-manager-secret-id` / `--secrets-manager-access-role-arn` as top-level CLI flags — they are not supported that way. These must be passed inside `--postgre-sql-settings` as `SecretsManagerSecretId` and `SecretsManagerAccessRoleArn`. Because the settings contain only ARNs, pass them as a JSON file with `file://` (Steps 4 and 5 of the same section).
 
 **Always use SSL for both source and target endpoints:**
 
@@ -244,9 +234,9 @@ Include `SslMode` in both endpoint JSON configurations.
 
 **CRITICAL**: If the target schema has foreign keys, you MUST configure FK bypass BEFORE starting the DMS task. Failure to do this causes `Table error` on child tables during full load because DMS loads tables in parallel and child rows may arrive before parent rows.
 
-**Recommended approach: `session_replication_role = 'replica'` via target endpoint ECA (Extra Connection Attributes)**
+**Recommended approach: `session_replication_role = 'replica'` via the target endpoint `AfterConnectScript`**
 
-Add this to the target endpoint's `PostgreSQLSettings` when creating the endpoint:
+Add this to the target endpoint's `PostgreSQLSettings` (the `file://` JSON in Step 5 of `02-mobilize-phase.md`) when creating the endpoint:
 
 ```json
 {
@@ -258,7 +248,7 @@ Add this to the target endpoint's `PostgreSQLSettings` when creating the endpoin
 
 This bypasses FK checks, triggers, and rules for the entire DMS session (both full load and CDC phases). Remove the `AfterConnectScript` only after migration cutover is complete and the application is writing directly to Aurora.
 
-**Do NOT drop and recreate FKs** — this is fragile, especially during CDC where ongoing changes depend on FK relationships. The `session_replication_role` approach is simpler, safer, and recommended by the power's Decision 6 in `02-mobilize-phase.md`.
+**Do NOT drop and recreate FKs** — this is fragile, especially during CDC where ongoing changes depend on FK relationships. The `session_replication_role` approach is simpler, safer, and recommended by Decision 6 in `02-mobilize-phase.md`.
 
 ### IPv6 and Dual-Stack Connectivity (Preferred for Supabase)
 
@@ -272,7 +262,7 @@ Does the user's VPC have IPv6 enabled?
 ├── YES (IPv6 CIDR assigned) → Check subnets and routes
 │   ├── Subnets have IPv6 CIDR? → Check: aws ec2 describe-subnets --query "Subnets[*].Ipv6CidrBlockAssociationSet"
 │   ├── Route table has ::/0 → IGW? → Check: aws ec2 describe-route-tables --query "RouteTables[*].Routes[?DestinationIpv6CidrBlock=='::/0']"
-│   ├── All YES → Use DMS dual-stack mode (--network-type dual) ✓ FREE
+│   ├── All YES → Use DMS dual-stack mode (--network-type DUAL) ✓ FREE
 │   └── Missing pieces → Add IPv6 CIDR to subnets / add ::/0 route (simple VPC config)
 └── NO (no IPv6 CIDR)
     ├── Is Supabase IPv4 add-on already enabled?
@@ -281,22 +271,14 @@ Does the user's VPC have IPv6 enabled?
     └── If VPC IPv6 setup is not feasible → Enable Supabase IPv4 add-on as last resort
 ```
 
-**DMS replication instance — always create with dual-stack mode** when connecting to Supabase:
+**DMS replication instance — always create with dual-stack mode** when connecting to Supabase. The create command is in `02-mobilize-phase.md` under "AWS DMS Setup (Fallback Path)", Step 3b.
 
-```bash
-aws dms create-replication-instance \
-  --replication-instance-identifier <name> \
-  --replication-instance-class dms.r5.large \
-  --network-type dual \
-  --region <region>
-```
-
-The `--network-type dual` flag enables both IPv4 and IPv6 connectivity. For an existing replication instance, you can modify it to use Dual-stack mode:
+The `--network-type DUAL` flag enables both IPv4 and IPv6 connectivity. For an existing replication instance, you can modify it to use Dual-stack mode:
 
 ```bash
 aws dms modify-replication-instance \
   --replication-instance-arn <instance-arn> \
-  --network-type dual \
+  --network-type DUAL \
   --region <region>
 ```
 

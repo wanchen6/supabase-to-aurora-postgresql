@@ -64,7 +64,7 @@ Database size?
 ├── < 10 GB   → Offline: row counts + spot checks on 5–10 key tables
 ├── 10–100 GB → Offline: row counts + sample MD5 checksums on all tables
 └── > 100 GB  → DMS online validation (continuous, row-by-row)
-                 Creates awsdms_validation_failures_v1 table on target
+                 Creates awsdms_validation_failures_v2 (engine 3.6.1 and later) or _v1 table on target
                  Monitor via CloudWatch metrics
 ```
 

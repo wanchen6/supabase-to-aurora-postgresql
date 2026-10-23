@@ -20,7 +20,7 @@ These rules apply to ALL phases of the migration. Violating any of these rules d
 1. **Ask user permission before ANY write operation.** Before creating, modifying, or deleting any AWS resource or database object, explain what you're about to do and why, then wait for confirmation. Example:
 
    ```text
-   "I need to create a DMS replication instance (dms.r5.large, 100 GB storage) in your VPC
+   "I need to create a DMS replication instance (dms.t3.small, 20 GB storage) in your VPC
    to migrate data from Supabase to Aurora. This will cost approximately $X/hour while running.
    Shall I proceed?"
    ```
@@ -96,4 +96,4 @@ These rules prevent the agent from skipping guidance that exists in the steering
 
 9. **ALWAYS calculate and verify subnet CIDRs before creating subnets.** List all existing subnets, identify used CIDR ranges, calculate available blocks, and present proposed CIDRs to the user and must ask for user's consent. Never create subnets without verifying no conflicts exist.
 
-10. **When DMS is needed, create all resources with correct settings on the first attempt.** Read the DMS Creation Checklist in `02-mobilize-phase.md` before creating any DMS resource. Key settings that cannot be changed after creation: `--publicly-accessible`, `--network-type`. Settings that cause FK errors if missing: `AfterConnectScript` on target endpoint. IAM trust policy must include both `dms.amazonaws.com` and `dms.<region>.amazonaws.com`.
+10. **When DMS is needed, create all resources with correct settings on the first attempt.** Read "AWS DMS Setup (Fallback Path)" in `02-mobilize-phase.md` (the only place with the create commands) and record the Mobilize decisions before creating any DMS resource. A key setting that cannot be changed after creation: `--publicly-accessible` (`--network-type` can be changed later with `modify-replication-instance`). Settings that cause FK errors if missing: `AfterConnectScript` on target endpoint. IAM trust policy must include both `dms.amazonaws.com` and `dms.<region>.amazonaws.com`.
