@@ -404,6 +404,22 @@ Option A is preferred because it preserves index usage on the `uuid` column. Opt
 - For large data operations, batch into smaller transactions
 - Data API is best suited for small, quick operations (CRUD, validation queries, ad-hoc checks)
 
+### DatabaseResumingException / first request after idle is slow
+
+**Symptom**: A Data API call fails with HTTP 400 `DatabaseResumingException`, or the first page load after a quiet period takes about 15 seconds.
+
+**Root Cause**: The cluster uses a `MinCapacity` of 0 (automatic pause). After the idle delay, the writer pauses. The AWS documentation says a Data API request resumes a paused writer and recommends retry logic for connections to clusters with auto-pause ([Aurora Serverless v2 automatic pause](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html)). The next request starts the resume and is rejected while it runs.
+
+**Measured behavior** (observed on one run, small database): the cluster paused after 10 idle minutes (`ServerlessDatabaseCapacity` in CloudWatch went to 0). The next Data API call returned the resuming error once and succeeded on retry after about 10 seconds. The first request through the application took about 15 seconds.
+
+**Resolution**:
+
+- Retry only this error, for example up to 8 attempts about 2 seconds apart. Do not retry other errors.
+- For production, or for users who cannot wait, set a minimum of 0.5 ACU: `aws rds modify-db-cluster --db-cluster-identifier <cluster> --serverless-v2-scaling-configuration MinCapacity=0.5,MaxCapacity=<n> --apply-immediately`. This is a write that needs the user's consent, and it adds the always-on compute cost from the plan.
+- Frequent calls, such as a health check, keep the cluster awake. Open connections keep the instance from pausing (for example from an RDS Proxy that holds connections open); the AWS page lists the conditions that prevent auto-pause.
+
+**Tell the user**: "The first request after about 10 idle minutes waits roughly 15 seconds while the database wakes up. Later requests are fast. If that wait is not acceptable, set the minimum capacity to 0.5 ACU."
+
 ## Deployment Platform Errors
 
 ### Vercel OIDC / IAM Authentication Failures

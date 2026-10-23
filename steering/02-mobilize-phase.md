@@ -523,6 +523,102 @@ Before provisioning, decide:
 
 Use AWS Pricing MCP to compare costs across instance types and capacity models for the target region.
 
+### Provision with the AWS CLI (no Aurora MCP needed)
+
+This recipe creates the target with the AWS CLI alone. The Aurora PostgreSQL MCP server is optional and is not needed here. Run every command with `--profile <profile> --region <region>` (the AWS profile from Step 3 of the intake). It was run live once on a small test database; the AWS documentation for [Aurora Serverless v2 automatic pause](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html) and the [`create-db-cluster` reference](https://docs.aws.amazon.com/cli/latest/reference/rds/create-db-cluster.html) describe the flags.
+
+**Inputs**, and where each comes from:
+
+| Input | Source |
+| ----- | ------ |
+| `<region>` | the region the user chose in Step 3 |
+| `<app>` (cluster id) | the cluster identifier proposed in Step 3 |
+| `<database-name>` | the database the application uses on the source |
+| `<subnet-group>` and `<vpc-id>` | Decision 0 Step 3, or an existing private subnet group the user confirmed |
+| `<major.minor>` | the engine version rule below |
+| `<project-tag>` | the project name, used as the `Project` tag on every resource |
+| Capacity | the confirmed plan: ACU range and whether automatic pause is on |
+
+**Consent before any create call.** Creating resources is a write. List every resource, the cost, the tags and the clean-up, then wait for an explicit yes:
+
+```text
+"I will create these resources in <region> on account <account-alias-or-id>:
+- a security group <app>-aurora with no inbound rules
+- an Aurora PostgreSQL cluster <app> (Serverless v2, encrypted, Data API on)
+- a writer instance <app>-writer
+- a secret for the administrator password, created and managed by RDS
+Estimated monthly cost: $<monthly from the plan>, plus the Secrets Manager secret and Data API request charges.
+Every resource is tagged Project=<project-tag>.
+To remove them later you run: aws rds delete-db-instance, aws rds delete-db-cluster, aws ec2 delete-security-group.
+Shall I go ahead?"
+```
+
+**Subnet group.** Reuse a private group and check it first (read-only):
+
+```bash
+aws rds describe-db-subnet-groups --db-subnet-group-name <subnet-group> --query 'DBSubnetGroups[0].[VpcId,Subnets[].SubnetAvailabilityZone.Name]'
+```
+
+Run `aws rds create-db-subnet-group` only after the user consented to the subnets and CIDRs in Decision 0 Step 5.
+
+**Engine version.** Use the newest minor of the source major unless the user pinned one. This read-only query lists the minors and whether each supports a 0 ACU minimum:
+
+```bash
+aws rds describe-db-engine-versions --engine aurora-postgresql --query "DBEngineVersions[?starts_with(EngineVersion, '<major>.')].[EngineVersion,ServerlessV2FeaturesSupport.MinCapacity,ServerlessV2FeaturesSupport.MaxCapacity]" --output text
+```
+
+Run the query and read the result; do not rely on an earlier run. Automatic pause needs a minor that reports a MinCapacity of 0 (the AWS page lists the minimum engine versions).
+
+**1. Security group with no inbound rules.** The Data API is reached over HTTPS, so the cluster needs none. Add port 5432 rules only for an application host in the VPC, native replication, or DMS.
+
+```bash
+aws ec2 create-security-group --group-name <app>-aurora --description "Aurora <app>: no inbound rules, Data API access only" --vpc-id <vpc-id> --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=<app>-aurora},{Key=Project,Value=<project-tag>}]'
+```
+
+**2. Cluster.** Serverless v2 with automatic pause, an RDS-managed administrator password, the Data API on at creation, and encryption:
+
+```bash
+aws rds create-db-cluster --db-cluster-identifier <app> --engine aurora-postgresql --engine-version <major.minor> \
+  --serverless-v2-scaling-configuration MinCapacity=0,MaxCapacity=<acu-max>,SecondsUntilAutoPause=600 \
+  --master-username postgres --manage-master-user-password --db-subnet-group-name <subnet-group> \
+  --vpc-security-group-ids <sg-id> --storage-encrypted --backup-retention-period 7 --enable-http-endpoint \
+  --tags Key=Project,Value=<project-tag>
+```
+
+**3. Writer instance.** The cluster is available within seconds. The writer took about 4 minutes on one run (creating, configuring-enhanced-monitoring, available):
+
+```bash
+aws rds create-db-instance --db-instance-identifier <app>-writer --db-cluster-identifier <app> --engine aurora-postgresql --db-instance-class db.serverless --no-publicly-accessible
+aws rds wait db-instance-available --db-instance-identifier <app>-writer
+```
+
+**4. Verify.** The instance status is `available`, the Data API is on, the scaling configuration matches the plan, and the managed secret exists:
+
+```bash
+aws rds describe-db-instances --db-instance-identifier <app>-writer --query 'DBInstances[0].DBInstanceStatus'
+aws rds describe-db-clusters --db-cluster-identifier <app> --query 'DBClusters[0].[Status,HttpEndpointEnabled,ServerlessV2ScalingConfiguration,MasterUserSecret.SecretArn]'
+```
+
+For a cluster that already exists, turn the Data API on with `aws rds enable-http-endpoint --resource-arn <cluster-arn>`. This is a write, so it needs consent too.
+
+**Capacity defaults.** Use the confirmed plan. The ceiling is the plan's ACU maximum; propose 2 only when the plan has none. When the user has not chosen otherwise:
+
+| Case | Scaling flag |
+| ---- | ------------ |
+| Non-production, automatic pause on | `MinCapacity=0,MaxCapacity=<acu-max>,SecondsUntilAutoPause=600` |
+| Production, or automatic pause off | `MinCapacity=0.5,MaxCapacity=<acu-max>` |
+| Provisioned model | No scaling flag; pass `--db-instance-class <class>` on the instance call instead of `db.serverless` |
+
+The AWS page gives 300 seconds as the minimum and the default. The recipe uses 600 seconds so that the cluster does not pause between short test runs. With a minimum of 0, the first request after a pause gets a resume error and must retry (`troubleshooting.md` → "DatabaseResumingException / first request after idle is slow").
+
+**Administrator password.** RDS creates and rotates the secret (`rds!cluster-...`) because of `--manage-master-user-password`. Never print or paste its value. Pass its ARN by reference, read with `aws rds describe-db-clusters --db-cluster-identifier <app> --query 'DBClusters[0].MasterUserSecret.SecretArn' --output text`. The hand-made secret with a secure password prompt stays as the alternative: see Step 1 of "AWS DMS Setup (Fallback Path)".
+
+**Describe before retry.** A create call in a shell can return exit -1 with no output although it succeeded. After any create or enable call that gives no clear answer, run the matching `describe-*` command first, and call create again only if the resource is absent.
+
+**Tags.** Every resource the agent creates carries `Project=<project-tag>`. RDS tags the managed secret itself, so the agent does not tag it.
+
+**After provisioning.** Continue with "Check extensions on the cluster" below, then Post-Provisioning Configuration, then the schema steps.
+
 ### Check extensions on the cluster
 
 Assess labels each extension from the AWS documentation. Once the cluster is available, and before any copy or schema step, ask the target which extensions it can install. Reading the catalog changes nothing. The cluster result overrides the documentation: if the two disagree, plan around the cluster.
