@@ -451,7 +451,7 @@ Best for tables without primary keys (partial), when built-in validation is need
 >
 > Record these four Mobilize decisions in the migration notes (see the Mobilize decision summary table in `02-mobilize-phase.md`):
 >
-> - Decision 1, schema method (Method A, B or C)
+> - Decision 1, schema method (Method A or B; Method C is the offline pg_dump route and does not apply to DMS)
 > - Decision 4, plugin (`test_decoding` or `pglogical`)
 > - Decision 5, target table prep mode
 > - Decision 6, foreign key bypass

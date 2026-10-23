@@ -1058,7 +1058,7 @@ This section holds the only DMS create commands in the power. Other files state 
 >
 > Record these four Mobilize decisions in the migration notes (the Mobilize decision summary table):
 >
-> - Decision 1, schema method (Method A, B or C)
+> - Decision 1, schema method (Method A or B; Method C is the offline pg_dump route and does not apply to DMS)
 > - Decision 4, plugin (`test_decoding` or `pglogical`)
 > - Decision 5, target table prep mode
 > - Decision 6, foreign key bypass (for example `AfterConnectScript` on the target endpoint)
