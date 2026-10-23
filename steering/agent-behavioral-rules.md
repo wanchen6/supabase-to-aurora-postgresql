@@ -81,7 +81,7 @@ These rules prevent the agent from skipping guidance that exists in the steering
 
 5. **When creating AWS resources, read the prerequisites steering file for the correct settings.** Do not rely on general knowledge for DMS instance configuration, endpoint settings, or security group rules. `02-mobilize-phase.md` ("AWS DMS Setup (Fallback Path)" and "Provision with the AWS CLI") has the exact commands, and `supabase-prerequisites-and-connectivity.md` has the connectivity rules and settings. Key examples:
    - DMS replication instance: must be `--publicly-accessible` for external sources (Supabase)
-   - DMS target endpoint: must include `AfterConnectScript` for FK bypass when schema has FKs
+   - DMS target endpoint: include `AfterConnectScript` for the FK bypass when the schema has FKs, unless Decision 6 or 8 chose otherwise
    - Both endpoints: must use `SslMode: require`
 
 6. **ALWAYS run a network assessment before creating Aurora, DMS, or any VPC resources.** Follow Decision 0 in `02-mobilize-phase.md`. This includes: detecting source IPv6/IPv4 status, assessing VPC subnets, calculating CIDR blocks, and presenting the plan to the user for approval. Never provision infrastructure without this assessment.
