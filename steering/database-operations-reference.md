@@ -16,7 +16,9 @@ WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY pg_total_relation_size(schemaname || '.' || tablename) DESC;
 ```
 
-### List All Tables with Row Counts
+### List All Tables with Estimated Row Counts
+
+`n_live_tup` is an estimate kept by autovacuum and ANALYZE, not an exact count. Use this list only as a planning estimate (sizing, ordering of tables). It is not used to decide anything: for validation and cutover use an exact `count(*)` per table (see `03-migrate-phase.md` → "Offline Validation").
 
 ```sql
 SELECT schemaname, relname AS tablename, n_live_tup AS estimated_rows,
@@ -238,6 +240,7 @@ WHERE NOT bl.granted;
 ### Table Bloat Detection
 
 ```sql
+-- n_live_tup and n_dead_tup are estimates kept by autovacuum: a maintenance signal, not a row count, and not used to validate a migration
 SELECT schemaname, relname AS tablename,
   n_dead_tup, n_live_tup,
   round(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) AS dead_pct,

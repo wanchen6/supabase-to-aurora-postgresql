@@ -63,9 +63,9 @@ The weekly figures are estimates that were not re-checked for this release; chec
 
 ```
 Database size?
-├── < 10 GB   → Offline: row counts + spot checks on 5–10 key tables
-├── 10–100 GB → Offline: row counts + sample MD5 checksums on all tables
-└── > 100 GB  → DMS online validation (continuous, row-by-row)
+├── < 10 GB   → Offline: exact count(*) + md5 checksum per table
+├── 10–100 GB → Offline: exact count(*) per table + sampled MD5 checksums on large tables
+└── > 100 GB  → DMS online validation (continuous, row-by-row) + exact count(*) per table
                  Creates awsdms_validation_failures_v2 (engine 3.6.1 and later) or _v1 table on target
                  Monitor via CloudWatch metrics
 ```
@@ -87,7 +87,7 @@ Database size?
      -j 4 supabase_dump.backup
    ```
 5. Run `ANALYZE VERBOSE;`
-6. Validate row counts (source vs target)
+6. Validate exact row counts and checksums (source vs target; `count(*)`, not statistics-view estimates)
 7. Proceed to cutover
 
 ## Flow Summary: Native Logical Replication (Preferred Online Path)
@@ -181,7 +181,7 @@ After data load completes — regardless of migration path:
 1. Create indexes on target (if deferred during load for performance)
 2. Create triggers on target (if deferred)
 3. Gather statistics: `ANALYZE VERBOSE;`
-4. Validate row counts and object counts between source and target
+4. Validate exact row counts (`count(*)`), checksums and object counts between source and target
 5. Verify enum types and custom types are present on target
 6. Verify functions and stored procedures are in place
 7. Test application read and write operations
@@ -224,7 +224,7 @@ Uses AWS Secrets Manager for credentials — no password in config.
 
 ### Pre-Cutover
 - [ ] Replication lag near zero (native: < 1 MB, DMS: CDCLatencyTarget < 5s)
-- [ ] Row counts match between source and target
+- [ ] Exact row counts (`count(*)`) and table checksums match between source and target
 - [ ] DMS validation passed (if applicable)
 - [ ] Application maintenance window scheduled
 - [ ] Rollback plan documented
@@ -232,7 +232,7 @@ Uses AWS Secrets Manager for credentials — no password in config.
 ### Cutover Execution
 1. Stop application writes (maintenance mode)
 2. Wait for replication to fully drain
-3. Final row count comparison
+3. Final exact row count (`count(*)`) and checksum comparison
 4. **Reset sequences on Aurora** (native replication does NOT replicate sequences):
    ```sql
    SELECT setval('public.<table>_id_seq', (SELECT MAX(id) FROM public.<table>));
@@ -258,7 +258,7 @@ Uses AWS Secrets Manager for credentials — no password in config.
 After migration, verify all of the following:
 
 - [ ] Table counts match between Supabase source and Aurora target
-- [ ] Row counts match for each table
+- [ ] Exact row counts (`count(*)`) and checksums match for each table
 - [ ] Enum types and custom types are present on target
 - [ ] Indexes are created and being used (`pg_stat_user_indexes`)
 - [ ] Triggers and functions are in place

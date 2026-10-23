@@ -109,7 +109,7 @@ Is DMS part of the migration strategy? (from Decision 4)
 ├── YES — DMS for specific tables only (hybrid approach)
 │   └── Create DMS task with table-mapping rules for the subset of tables
 └── NO — Not using DMS
-    └── Plan offline validation: row counts, checksums, sample comparisons
+    └── Plan offline validation: exact row counts, checksums, sample comparisons
 ```
 
 ### Decision 6: Instance Sizing
@@ -224,7 +224,9 @@ FROM pg_stat_user_tables
 GROUP BY schemaname
 ORDER BY SUM(pg_total_relation_size(schemaname || '.' || tablename)) DESC;
 
--- Detailed table inventory with row counts
+-- Detailed table inventory with row count estimates (planning estimate for sizing and ordering tables only)
+-- n_live_tup is an estimate kept by autovacuum and ANALYZE, not an exact count. It is not used to decide anything;
+-- validation and cutover use exact count(*) (see 03-migrate-phase.md "Offline Validation").
 -- (relname NOT LIKE 'awsdms\_%' leaves out helper tables that an earlier DMS task left on the source)
 SELECT schemaname, relname, n_live_tup,
   pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) AS size

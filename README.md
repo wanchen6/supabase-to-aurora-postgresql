@@ -52,7 +52,7 @@ If none of these apply — your workload is small, no strict security or complia
 
 - **Assess** — connects to Supabase via MCP (OAuth, `read_only=true`), discovers schema/extensions/RLS/features, queries actual Aurora pricing, presents a multi-option cost comparison
 - **Mobilize** — provisions Aurora cluster, assesses VPC networking, migrates schema, configures replication or DMS infrastructure
-- **Migrate** — executes data migration, monitors lag, validates row counts, refactors application code (Supabase SDK → direct PostgreSQL), performs cutover
+- **Migrate** — executes data migration, monitors lag, validates exact row counts and checksums, refactors application code (Supabase SDK → direct PostgreSQL), performs cutover
 - **Modernize** — gathers statistics, reviews indexes, configures CloudWatch alarms, re-evaluates cost
 
 ## Vercel + Aurora Connectivity

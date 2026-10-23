@@ -458,7 +458,7 @@ Is this a multi-database migration (10+ databases)?
 
 ```
 Is DMS part of the migration?
-├── NO → Use offline validation (row counts, checksums, sample comparisons)
+├── NO → Use offline validation (exact row counts, checksums, sample comparisons)
 │   └── See 03-migrate-phase.md "Offline Validation" section
 └── YES
     ├── Is DMS performing the full load + CDC?
@@ -1505,7 +1505,7 @@ Choose 3–5 tables that represent:
 ### Pilot Execution Steps
 
 1. Run the chosen migration path (offline, native replication, or DMS) on pilot tables
-2. Validate row counts match between source and target
+2. Validate that exact row counts (`count(*)`) and md5 checksums match between source and target
 3. Validate data integrity with spot checks on key columns
 4. Measure migration throughput (rows/second, MB/second)
 5. Estimate full migration duration based on pilot results
@@ -1514,11 +1514,13 @@ Choose 3–5 tables that represent:
 ### Pilot Validation Queries
 
 ```sql
--- Row count comparison (run on both source and target)
-SELECT schemaname, relname, n_live_tup
-FROM pg_stat_user_tables
-WHERE relname IN ('pilot_table_1', 'pilot_table_2', 'pilot_table_3')
-ORDER BY relname;
+-- Exact row count and checksum per pilot table (run on both source and target; same session time zone on both)
+-- Replace id with each table's primary key column. n_live_tup is not used here: it is an estimate.
+SELECT 'pilot_table_1' AS tbl, count(*) AS exact_rows, md5(COALESCE(string_agg(t::text, ',' ORDER BY t.id), '')) AS checksum FROM public.pilot_table_1 t
+UNION ALL
+SELECT 'pilot_table_2', count(*), md5(COALESCE(string_agg(t::text, ',' ORDER BY t.id), '')) FROM public.pilot_table_2 t
+UNION ALL
+SELECT 'pilot_table_3', count(*), md5(COALESCE(string_agg(t::text, ',' ORDER BY t.id), '')) FROM public.pilot_table_3 t;
 
 -- Sample data spot check
 SELECT * FROM pilot_table_1 ORDER BY id LIMIT 10;

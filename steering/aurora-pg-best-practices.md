@@ -183,7 +183,7 @@ Key considerations:
 ### Aurora PostgreSQL MCP — When to Use
 
 The Aurora PostgreSQL MCP server converts natural language to SQL queries. Use it for:
-- Quick validation checks during migration ("Are all rows migrated?", "Show tables with row count mismatches")
+- Quick validation checks during migration (for example, an exact `count(*)` per table on both sides; do not use `pg_stat_user_tables` estimates for this)
 - Data exploration ("What are the most common values in the status column?")
 - Troubleshooting ("Show me the slowest queries in pg_stat_statements")
 - Ad-hoc analysis that doesn't require scripting

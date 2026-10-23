@@ -145,11 +145,11 @@ Which validation method applies?
 │       └── Monitor the awsdms_validation_failures_v2 (or _v1) table on target (see Path 3 Step 4)
 ├── Using native replication or pg_dump (Path 1 or 2)?
 │   └── Database size?
-│       ├── < 10 GB → Row counts + spot-check sample rows
-│       ├── 10–100 GB → Row counts + sample checksums on key tables
+│       ├── < 10 GB → Exact row counts + md5 checksum per table
+│       ├── 10–100 GB → Exact row counts + sampled checksums on large tables
 │       └── > 100 GB → DMS validation-only task (TargetTablePrepMode: DO_NOTHING)
 └── Hybrid (Path 4)?
-    └── Use DMS validation for DMS-migrated tables + row counts for others
+    └── Use DMS validation for DMS-migrated tables + exact row counts and checksums for others
 ```
 
 ### Decision 9: Replication Cleanup Timing
@@ -197,7 +197,7 @@ After working through the decisions above, document the results:
 | Cutover strategy | Option A (rolling) / Option B (merge-and-deploy) / Option C (connection string) | |
 | Maintenance window | Feature flag / Traffic splitting / Full maintenance mode | Estimated duration: |
 | Rollback strategy | Strategy 1 (basic) / Strategy 2 (fall forward) / Strategy 3 (dual write) / Strategy 4 (bidirectional) | |
-| Validation approach | DMS in-task / Row counts + checksums / DMS validation-only task | |
+| Validation approach | DMS in-task / Exact row counts + checksums / DMS validation-only task | |
 | Replication cleanup | After cutover verification / After stabilization period | |
 | Monitoring duration | 24h / 48h / 72h + 2 weeks elevated | Source decommission date: |
 
@@ -266,7 +266,7 @@ Before starting, determine which execution method is available:
   2. Write to Aurora via Aurora MCP or Data API (`INSERT INTO <table> VALUES ...`)
   3. Process tables in dependency order (parents before children) to respect foreign keys
   4. After all tables copied, run `ANALYZE VERBOSE;` on Aurora
-  5. Validate row counts (source vs target)
+  5. Validate exact row counts (`count(*)`) and checksums, source vs target ([Offline Validation](#offline-validation-non-dms-paths))
 
   This approach is equivalent in result but limited to small databases (< 1 GB / < 10K rows per table) due to MCP response size limits and Data API's 45-second timeout. For anything larger, provision a bastion.
 
@@ -345,11 +345,14 @@ pg_restore --no-owner --no-acl \
 -- Gather fresh statistics
 ANALYZE VERBOSE;
 
--- Row count comparison (run on both source and target)
-SELECT schemaname, relname, n_live_tup
-FROM pg_stat_user_tables
-WHERE schemaname = 'public'
-ORDER BY n_live_tup DESC;
+-- Exact row counts (read-only, one count(*) per table). Run on both source and target, then compare per table.
+SELECT table_schema, table_name,
+  (xpath('/row/c/text()',
+         query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint AS exact_rows
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE' AND table_schema = 'public'
+  AND table_name NOT LIKE 'awsdms\_%'
+ORDER BY table_schema, table_name;
 
 -- Object count comparison
 SELECT 'tables' AS type, COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'
@@ -358,6 +361,8 @@ SELECT 'indexes', COUNT(*) FROM pg_indexes WHERE schemaname = 'public'
 UNION ALL
 SELECT 'sequences', COUNT(*) FROM information_schema.sequences WHERE sequence_schema = 'public';
 ```
+
+Row-count estimates from the statistics views are not valid for validation. Compare exact counts, then compare a checksum per table as described in [Offline Validation](#offline-validation-non-dms-paths). If `query_to_xml` is not allowed, run `SELECT count(*) FROM public.<table>` once for each table on both sides.
 
 ### Step 6: Proceed to Cutover
 
@@ -405,11 +410,10 @@ ALTER SUBSCRIPTION migration_sub REFRESH PUBLICATION;
 When `copy_data = true`, the subscription first copies all existing data before streaming changes. Monitor progress:
 
 ```sql
--- On target: check copy progress per table
-SELECT relname, n_live_tup
-FROM pg_stat_user_tables
-WHERE schemaname = 'public'
-ORDER BY relname;
+-- On target: check copy state per table (i = initialize, d = copying, f = copy finished, s = synchronized, r = ready)
+SELECT srrelid::regclass AS table_name, srsubstate
+FROM pg_subscription_rel
+ORDER BY 1;
 
 -- On source: check replication slot lag
 SELECT slot_name, active,
@@ -418,6 +422,8 @@ SELECT slot_name, active,
 FROM pg_replication_slots
 WHERE slot_name = 'migration_slot';
 ```
+
+When every table shows `r`, the initial copy is done. Compare exact row counts and checksums at cutover ([Offline Validation](#offline-validation-non-dms-paths)); the row estimates in `pg_stat_user_tables` do not show copy progress reliably.
 
 ### Step 4: Wait for Replication to Catch Up
 
@@ -747,7 +753,7 @@ Before starting the cutover window:
 
 - [ ] All replication paths show lag < 1 MB (native) or < 5 seconds (DMS)
 - [ ] DMS validation shows all tables as `Validated` (if using DMS)
-- [ ] Row counts match between source and target for key tables
+- [ ] Exact row counts (`count(*)`) and table checksums match between source and target for every table (see [Offline Validation](#offline-validation-non-dms-paths); statistics-view estimates are not valid for this check)
 - [ ] Rollback strategy selected and infrastructure provisioned (e.g., fall forward replica A' if using Strategy 2)
 - [ ] Application maintenance page or feature flag is ready
 - [ ] Rollback plan is documented and reviewed
@@ -809,14 +815,17 @@ Run the sequence reset commands generated above.
 **Step 5: Run final validation**
 
 ```sql
--- Row count comparison (run on both source and target)
-SELECT schemaname, relname, n_live_tup
-FROM pg_stat_user_tables
-WHERE schemaname = 'public'
-ORDER BY relname;
+-- Exact row counts (read-only, one count(*) per table). Run on both source and target, then compare per table.
+SELECT table_schema, table_name,
+  (xpath('/row/c/text()',
+         query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint AS exact_rows
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE' AND table_schema = 'public'
+  AND table_name NOT LIKE 'awsdms\_%'
+ORDER BY table_schema, table_name;
 ```
 
-Differences should be zero or explainable (e.g., platform-specific tables excluded from migration).
+Then compare a checksum per table on both sides (see [Offline Validation](#offline-validation-non-dms-paths)). Differences should be zero or explainable (e.g., platform-specific tables excluded from migration). Row-count estimates from the statistics views (`n_live_tup`) are not valid for this check: compare exact counts only.
 
 **Step 6: Gather fresh statistics on target**
 
@@ -962,46 +971,57 @@ For migrations using pg_dump/pg_restore or native logical replication (which don
 
 | Database Size | Validation Approach |
 | ------------- | ------------------- |
-| < 10 GB | Row counts + spot-check sample rows |
-| 10–100 GB | Row counts + sample checksums on key tables |
-| > 100 GB | DMS validation-only task (continuous, row-by-row) |
+| < 10 GB | Exact row counts + md5 checksum per table, plus spot-check sample rows |
+| 10–100 GB | Exact row counts + sampled checksums on large tables (full checksums on the small ones) |
+| > 100 GB | DMS validation-only task (continuous, row-by-row), plus exact row counts |
+
+`n_live_tup` and the other statistics-view counts are estimates kept by autovacuum and ANALYZE. They are not exact counts: a table that was never analyzed can report 0 even when it is full. Use them only as a planning estimate (sizing, ordering of tables). They are not used to decide anything.
 
 ### Row Count Validation
 
-Run on both source and target, then compare:
+Run on both source and target, then compare per table:
 
 ```sql
-SELECT schemaname, relname AS tablename, n_live_tup AS row_count
-FROM pg_stat_user_tables
-WHERE schemaname = 'public'
-ORDER BY relname;
+-- Exact row counts (read-only, one count(*) per table). Run on both source and target, then compare per table.
+SELECT table_schema, table_name,
+  (xpath('/row/c/text()',
+         query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint AS exact_rows
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE' AND table_schema = 'public'
+  AND table_name NOT LIKE 'awsdms\_%'
+ORDER BY table_schema, table_name;
 ```
 
-For exact counts (slower but precise):
+Row-count estimates from the statistics views are not valid for validation or cutover readiness. Compare exact counts only. If `query_to_xml` is not allowed, run `SELECT count(*) FROM public.<table>` once for each table on both sides. A difference stops the run: do not continue to cutover on a mismatch.
+
+### Checksum Validation
+
+Run `SHOW timezone` on both sides first. The two values must match (Aurora and Supabase default to UTC), because the checksum uses each row's text form. For small databases, compare a full-table checksum for every table:
 
 ```sql
--- Generate exact count queries for all tables
-SELECT 'SELECT ''' || schemaname || '.' || relname || ''' AS table_name, COUNT(*) AS exact_count FROM ' || schemaname || '.' || relname || ';'
-FROM pg_stat_user_tables
-WHERE schemaname = 'public'
-ORDER BY relname;
+-- Full checksum per table (run on both source and target)
+SELECT md5(COALESCE(string_agg(t::text, ',' ORDER BY t.<primary_key_column>), ''))
+FROM public.<table_name> t;
 ```
 
-### Sample Checksum Validation
+A table without a primary key has no stable order. Use the order-independent form `md5(COALESCE(string_agg(md5(t::text), '' ORDER BY md5(t::text)), ''))` instead.
 
-For medium-sized databases, compare checksums on a sample of rows:
+### Sampled Checksum Validation
+
+For large tables, compare checksums on samples of rows. Take several key ranges, not only the first rows:
 
 ```sql
 -- Checksum a sample of rows from a table (run on both source and target)
-SELECT md5(string_agg(t::text, ',' ORDER BY <primary_key_column>))
+SELECT md5(string_agg(t::text, ',' ORDER BY t.<primary_key_column>))
 FROM (
   SELECT * FROM public.<table_name>
+  WHERE <primary_key_column> >= <range_start>
   ORDER BY <primary_key_column>
   LIMIT 1000
 ) t;
 ```
 
-Replace `<primary_key_column>` and `<table_name>` for each table being validated.
+Replace `<primary_key_column>`, `<table_name>` and `<range_start>` for each table and range being validated. Equal sampled checksums support the exact counts but do not prove every row is equal.
 
 ### DMS Validation-Only Task
 
@@ -1045,7 +1065,7 @@ Key settings:
 ## Deliverables
 
 - Data migration completed via chosen path (offline, native replication, DMS, or hybrid)
-- Data validation completed (row counts, checksums, or DMS validation)
+- Data validation completed (exact row counts and checksums, or DMS validation together with exact row counts)
 - Refactored application code tested against Aurora in preview/staging (if platform SDK refactoring was needed)
 - Application cutover completed — pointing to target database
 - Refactored application code merged to main (if platform SDK refactoring was needed)
@@ -1209,7 +1229,7 @@ Not claimed: the cause of the representation difference inside DMS was not deter
 ## Success Criteria
 
 - All tables migrated with zero data loss
-- Row counts and object counts match between source and target
+- Exact row counts (`count(*)`) and object counts match between source and target
 - Application functionality validated (including refactored code if applicable)
 - Performance meets or exceeds source baseline (P50, P95, P99 latency)
 - Downtime within the approved maintenance window

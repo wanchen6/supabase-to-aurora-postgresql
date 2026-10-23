@@ -104,7 +104,7 @@ The user provides their Supabase project URL. **Run auto-discovery immediately �
 
 **Ask the user only for:** the Supabase project URL if not already provided in their message.
 
-**Auto-discover via Supabase MCP** (run without waiting for user input): full discovery from `01-assess-phase.md` → "Source Database Discovery" — PG version, size, tables, row counts, indexes, extensions, RLS, FKs, tables without PKs, data types. Detect Supabase feature usage by querying schema presence (`auth.users`, `storage.objects`, `supabase_functions.functions`, `realtime`). Check IPv4/IPv6 status: `dig AAAA db.<project-ref>.supabase.co`.
+**Auto-discover via Supabase MCP** (run without waiting for user input): full discovery from `01-assess-phase.md` → "Source Database Discovery" — PG version, size, tables, row count estimates (planning only, not used to decide anything), indexes, extensions, RLS, FKs, tables without PKs, data types. Detect Supabase feature usage by querying schema presence (`auth.users`, `storage.objects`, `supabase_functions.functions`, `realtime`). Check IPv4/IPv6 status: `dig AAAA db.<project-ref>.supabase.co`.
 
 Only ask if auto-discovery genuinely can't determine: instance size (online migration only) or IPv4 add-on status (if IPv6 check is ambiguous).
 
