@@ -323,7 +323,7 @@ Decision 6 (foreign key bypass) is separate and applies together with `DO_NOTHIN
 
 **This section provides detailed guidance for FK handling. Decision 1 references this for the fallback case when `AfterConnectScript` is not applicable. The bypass applies together with `DO_NOTHING` for a preloaded schema (the prep mode rule is stated once, in Decision 5). Record the choice in the migration notes.**
 
-**CRITICAL — MUST be configured BEFORE starting the DMS task. Failure to handle FKs causes `Table error` on child tables during full load because DMS loads tables in parallel and child rows may arrive before parent rows exist.**
+**CRITICAL — MUST be configured BEFORE starting the DMS task. Failure to handle FKs causes `Table error` on child tables during full load because DMS loads tables in parallel and child rows may arrive before parent rows exist. The task setting `MaxFullLoadSubTasks` sets how many tables load at once (default 8, maximum 49; [AWS DMS full-load task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.FullLoad.html)). No load order follows the foreign keys, so the bypass below does not depend on one.**
 
 ```
 Does the target schema have foreign keys?

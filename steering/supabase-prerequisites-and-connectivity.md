@@ -231,7 +231,7 @@ Include `SslMode` in both endpoint JSON configurations.
 
 ### DMS FK Handling — MANDATORY for Schemas with Foreign Keys
 
-**CRITICAL**: If the target schema has foreign keys, you MUST configure FK bypass BEFORE starting the DMS task. Failure to do this causes `Table error` on child tables during full load because DMS loads tables in parallel and child rows may arrive before parent rows.
+**CRITICAL**: If the target schema has foreign keys, you MUST configure FK bypass BEFORE starting the DMS task. Failure to do this causes `Table error` on child tables during full load because DMS loads tables in parallel (`MaxFullLoadSubTasks` sets how many at once; default 8, see [AWS DMS full-load task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.FullLoad.html)) and child rows may arrive before parent rows.
 
 **Recommended approach: `session_replication_role = 'replica'` via the target endpoint `AfterConnectScript`**
 

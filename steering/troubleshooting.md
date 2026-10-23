@@ -218,7 +218,7 @@ Do not skip validation. Record what you saw. The cause of the representation dif
 
 **Symptom**: DMS full load fails with foreign key constraint violations, or `TRUNCATE TABLE` / `DROP TABLE` fails with `cannot truncate a table referenced in a foreign key constraint`. The prep mode rule is stated once, in Mobilize [Decision 5](02-mobilize-phase.md#decision-5-dms-target-table-preparation-mode): a preloaded schema uses `DO_NOTHING` on an empty target. Read it first.
 
-**Root Cause**: DMS loads each table one at a time during full load, but table order is not guaranteed. If a child table's rows arrive before the parent table's rows, foreign key constraints cause the task to fail. PostgreSQL also has a failsafe mechanism that prevents truncation even when `session_replication_role` is set to `replica`.
+**Root Cause**: DMS loads tables in parallel during full load (`MaxFullLoadSubTasks` sets how many at once; default 8, see [AWS DMS full-load task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.FullLoad.html)), so table order is not guaranteed. If a child table's rows arrive before the parent table's rows, foreign key constraints cause the task to fail. PostgreSQL also has a failsafe mechanism that prevents truncation even when `session_replication_role` is set to `replica`.
 
 Reference: [AWS DMS — Using PostgreSQL as a target](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Target.PostgreSQL.html)
 
