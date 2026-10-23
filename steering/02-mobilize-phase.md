@@ -22,9 +22,6 @@ The Mobilize phase provisions the target PostgreSQL environment (Aurora or RDS),
 7. [AWS DMS Setup (Fallback Path)](#aws-dms-setup-fallback-path)
 8. [DMS Validation Setup](#dms-validation-setup)
 9. [Pilot Migration](#pilot-migration)
-10. [Application Testing](#application-testing)
-11. [Monitoring and Alerting Setup](#monitoring-and-alerting-setup)
-12. [Migration Runbook Development](#migration-runbook-development)
 
 ## Quick Navigation
 
